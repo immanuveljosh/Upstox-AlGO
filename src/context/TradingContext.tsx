@@ -65,8 +65,8 @@ interface TradingContextType {
 const TradingContext = createContext<TradingContextType | undefined>(undefined);
 
 export function TradingProvider({ children }: { children: React.ReactNode }) {
-  // 1. Default mode is strictly PAPER TRADING
-  const [mode, setModeState] = useState<TradingMode>("PAPER");
+  // 1. Default mode is BACKTEST (Simulation)
+  const [mode, setModeState] = useState<TradingMode>("BACKTEST");
   const [isLiveConfirmOpen, setIsLiveConfirmOpen] = useState(false);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("CONNECTED");
@@ -93,6 +93,29 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   const removeToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
+
+  // Check live Upstox session from backend on initial mount
+  useEffect(() => {
+    async function syncBrokerSession() {
+      try {
+        const res = await fetch("http://localhost:8000/api/v1/auth/me");
+        if (res.ok) {
+          const json = await res.json();
+          if (json.connection_status === "connected" && json.data) {
+            setConnectionStatus("CONNECTED");
+            setCredentials((prev) => ({
+              ...prev,
+              ucc: json.data.user_id || prev.ucc,
+              accountName: json.data.user_name || prev.accountName,
+            }));
+          }
+        }
+      } catch {
+        // Backend offline or unreachable
+      }
+    }
+    syncBrokerSession();
+  }, []);
 
   // Handle OAuth callback status from URL parameters
   useEffect(() => {
@@ -247,10 +270,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       addToast({
         type: "info",
         title: `Mode: ${newMode} Active`,
-        message:
-          newMode === "PAPER"
-            ? "Paper Trading mode active: orders simulated safely without real capital risk."
-            : "Backtest mode active: testing historical candles and option chain.",
+        message: "Backtest simulation mode active: zero financial risk. Testing historical candles and simulated execution.",
       });
     }
   };

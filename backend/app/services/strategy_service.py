@@ -323,12 +323,12 @@ class StrategyService:
 
     async def switch_mode(self, db: AsyncSession, new_mode: str, confirm_live: bool = False) -> Dict[str, Any]:
         """
-        Switch between PAPER (default), LIVE, and BACKTEST modes.
+        Switch between BACKTEST (default simulation) and LIVE modes.
         Live mode requires explicit user confirmation.
         """
-        valid_modes = ["PAPER", "LIVE", "BACKTEST"]
+        valid_modes = ["LIVE", "BACKTEST"]
         if new_mode not in valid_modes:
-            new_mode = "PAPER"
+            new_mode = "BACKTEST"
 
         config = await broker_service.get_or_create_config(db)
 
@@ -350,9 +350,8 @@ class StrategyService:
 
         log_critical_action("MODE_SWITCH", {"mode": new_mode})
         mode_messages = {
-            "PAPER": "Paper Trading mode active: orders simulated safely without real capital risk.",
             "LIVE": "Live Trading mode active: real Upstox OMS order routing enabled.",
-            "BACKTEST": "Backtest mode active: historical testing only. Live execution locked.",
+            "BACKTEST": "Backtest Simulation mode active: zero capital risk. Historical testing and order simulation active.",
         }
         return {
             "connection_status": "connected",

@@ -32,7 +32,7 @@ export function BrokerSettings() {
   const [isCopied, setIsCopied] = useState(false);
   const [isAuthorizing, setIsAuthorizing] = useState(false);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     updateCredentials({
       apiKey,
@@ -40,6 +40,36 @@ export function BrokerSettings() {
       redirectUrl,
       accessToken,
     });
+
+    if (accessToken && accessToken.trim()) {
+      try {
+        const res = await fetch("http://localhost:8000/api/v1/auth/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: accessToken.trim() }),
+        });
+        const data = await res.json();
+        if (data.connection_status === "connected") {
+          addToast({
+            type: "success",
+            title: "Upstox Live Verified",
+            message: `Connected as ${data.data?.user_name || "User"} (${data.data?.user_id || "UCC"}).`,
+          });
+        } else {
+          addToast({
+            type: "warning",
+            title: "Token Saved",
+            message: data.message || "Token stored but could not verify live session.",
+          });
+        }
+      } catch {
+        addToast({
+          type: "info",
+          title: "Credentials Saved",
+          message: "API settings updated.",
+        });
+      }
+    }
   };
 
   const handleCopyRedirect = () => {

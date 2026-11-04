@@ -2,7 +2,7 @@ export type OptionType = "CE" | "PE";
 
 export type OrderStatus = "PLACED" | "CLOSED" | "REJECTED";
 
-export type TradingMode = "PAPER" | "LIVE" | "BACKTEST";
+export type TradingMode = "LIVE" | "BACKTEST";
 
 export type ConnectionStatus = "CONNECTED" | "DISCONNECTED" | "RECONNECTING";
 

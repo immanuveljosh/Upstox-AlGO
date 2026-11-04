@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
     # Trading Defaults
-    DEFAULT_TRADING_MODE: str = "PAPER"  # PAPER (default), LIVE, or BACKTEST
+    DEFAULT_TRADING_MODE: str = "BACKTEST"  # BACKTEST (default) or LIVE
     NIFTY_LOT_SIZE: int = 25  # 25 units per lot for Nifty
 
     model_config = SettingsConfigDict(

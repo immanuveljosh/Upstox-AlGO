@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useTrading } from "@/context/TradingContext";
-import { Activity, History, FileText, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Activity, History, AlertTriangle, ShieldCheck } from "lucide-react";
 
 export function ModeToggle() {
   const {
@@ -16,19 +16,19 @@ export function ModeToggle() {
   return (
     <>
       <div className="flex items-center bg-slate-900/90 p-1 rounded-lg border border-slate-800 shadow-inner">
-        {/* Paper Mode (Default) */}
+        {/* Backtest Mode (Simulation / Historical) */}
         <button
           type="button"
-          onClick={() => setMode("PAPER")}
+          onClick={() => setMode("BACKTEST")}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-            mode === "PAPER"
-              ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
+            mode === "BACKTEST"
+              ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm"
               : "text-slate-400 hover:text-slate-200"
           }`}
-          title="Safe paper trading simulation with real-time quotes"
+          title="Backtesting & safe simulation sandbox (zero capital risk)"
         >
-          <FileText className="w-3.5 h-3.5" />
-          <span>Paper</span>
+          <History className="w-3.5 h-3.5" />
+          <span>Backtest</span>
         </button>
 
         {/* Live Mode */}
@@ -49,21 +49,6 @@ export function ModeToggle() {
           />
           <Activity className="w-3.5 h-3.5" />
           <span>Live</span>
-        </button>
-
-        {/* Backtest Mode */}
-        <button
-          type="button"
-          onClick={() => setMode("BACKTEST")}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-            mode === "BACKTEST"
-              ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm"
-              : "text-slate-400 hover:text-slate-200"
-          }`}
-          title="Historical backtesting sandbox"
-        >
-          <History className="w-3.5 h-3.5" />
-          <span>Backtest</span>
         </button>
       </div>
 
@@ -87,7 +72,7 @@ export function ModeToggle() {
 
             <div className="my-4 text-xs text-slate-300 space-y-2.5 leading-relaxed bg-slate-950/60 p-3.5 rounded-xl border border-slate-800">
               <p>
-                You are about to switch from <strong>Paper Trading</strong> to <strong>Live Trading</strong>.
+                You are about to switch from <strong>Backtest Simulation</strong> to <strong>Live Trading</strong>.
               </p>
               <ul className="list-disc pl-4 space-y-1 text-slate-400 text-[11px]">
                 <li>Signals will submit real orders to your <strong>Upstox Trading Account</strong>.</li>
@@ -102,7 +87,7 @@ export function ModeToggle() {
                 onClick={cancelLiveMode}
                 className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition-colors cursor-pointer"
               >
-                Keep Paper Mode
+                Keep Backtest Mode
               </button>
               <button
                 type="button"

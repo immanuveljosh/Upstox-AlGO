@@ -248,7 +248,7 @@ export default function LoginPage() {
               onClick={() => router.push("/")}
               className="text-xs text-slate-400 hover:text-emerald-400 transition-colors inline-flex items-center gap-1 font-medium"
             >
-              <span>Explore Dashboard in Paper Trading Mode</span>
+              <span>Explore Dashboard in Backtest Mode</span>
               <ArrowRight className="w-3 h-3" />
             </button>
           </div>

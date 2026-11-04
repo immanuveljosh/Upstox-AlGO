@@ -32,18 +32,13 @@ class OrderService:
         config = await broker_service.get_or_create_config(db)
 
         # 1. Backtest mode enforcement: strictly block order execution
-        if config.mode == "BACKTEST":
-            raise ModeRestrictionException(
-                "Order placement is disabled in Backtest mode. Backtest mode only permits historical market data queries. Switch to Paper or Live mode for order execution."
-            )
-
-        # 2. Kill switch active check
+        # 1. Kill switch active check
         if config.is_kill_switch_active:
             raise RiskLimitBreachedException(
                 "Kill Switch is currently active. All trading is locked. Reset Kill Switch in Settings."
             )
 
-        # 3. Daily 1-trade limit enforcement for Gift Nifty Directional strategy
+        # 2. Daily 1-trade limit enforcement for Gift Nifty Directional strategy
         today_date = datetime.now(IST).strftime("%Y-%m-%d")
         if config.last_trade_date != today_date:
             config.trades_executed_today = 0
@@ -55,7 +50,7 @@ class OrderService:
                 f"Maximum daily limit reached: Only 1 trade per day is permitted by the Gift Nifty Directional strategy."
             )
 
-        # 4. Strike selection: Default strictly to ITM 3 (In-The-Money 3rd strike)
+        # 3. Strike selection: Default strictly to ITM 3 (In-The-Money 3rd strike)
         spot_price = 24878.50
         if strike is None:
             strike = strategy_service.calculate_itm3_strike(spot_price, option_type)
@@ -71,10 +66,10 @@ class OrderService:
 
         est_price = price if price > 0 else (218.40 if option_type == "CE" else 204.60)
 
-        # 5. Execution branching based on Mode (PAPER vs LIVE)
-        if config.mode == "PAPER":
-            # Paper Trading Mode: Safely simulated execution
-            upstox_order_id = f"PAPER-{uuid.uuid4().hex[:8].upper()}"
+        # 4. Execution branching based on Mode (BACKTEST Simulation vs LIVE Upstox)
+        if config.mode in ["BACKTEST", "PAPER"]:
+            # Backtest Simulation Mode: Safely simulated execution
+            upstox_order_id = f"SIM-{uuid.uuid4().hex[:8].upper()}"
             status = "PLACED"
             reject_reason = None
 
@@ -83,7 +78,7 @@ class OrderService:
             await db.commit()
 
             log_critical_action(
-                "PLACE_PAPER_ORDER_SUCCESS",
+                "PLACE_SIMULATED_ORDER_SUCCESS",
                 {
                     "symbol": symbol,
                     "strike": strike,
@@ -91,7 +86,7 @@ class OrderService:
                     "lots": actual_lots,
                     "qty": qty,
                     "order_id": client_order_id,
-                    "mode": "PAPER",
+                    "mode": config.mode,
                     "sl_amount_5pct": sl_amount,
                     "target_amount_6pct": target_amount,
                 },

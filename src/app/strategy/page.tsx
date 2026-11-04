@@ -233,10 +233,10 @@ export default function StrategyPage() {
 
               <div className="p-3 rounded-lg bg-slate-950 border border-slate-800">
                 <span className="font-bold text-emerald-400 block mb-1">
-                  Default Mode: Paper Trading
+                  Default Mode: Backtest Simulation
                 </span>
                 <span>
-                  All trades execute safely in <strong>Paper Trading</strong> by default. Switching to Live requires explicit user confirmation and an active Upstox session.
+                  All trades simulate safely in <strong>Backtest Mode</strong> with zero real-money risk. Switching to Live requires explicit user confirmation and an active Upstox session.
                 </span>
               </div>
             </div>

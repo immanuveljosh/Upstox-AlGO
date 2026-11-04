@@ -74,14 +74,14 @@ export function TopBar({ onToggleMobileSidebar }: TopBarProps) {
         </div>
 
         {/* Mode context pill on desktop */}
-        {mode === "PAPER" && (
-          <span className="hidden xl:inline-flex items-center gap-1 px-2.5 py-1 rounded bg-cyan-500/10 border border-cyan-500/30 text-[11px] font-semibold text-cyan-300">
-            Paper Trading Mode
-          </span>
-        )}
         {mode === "BACKTEST" && (
           <span className="hidden xl:inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-[11px] font-semibold text-amber-300">
-            Replay Sandbox
+            Backtest Simulation Mode
+          </span>
+        )}
+        {mode === "LIVE" && (
+          <span className="hidden xl:inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-500/15 border border-emerald-500/40 text-[11px] font-semibold text-emerald-300">
+            Live Trading Mode
           </span>
         )}
       </div>

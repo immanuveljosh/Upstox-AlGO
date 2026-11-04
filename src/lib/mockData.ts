@@ -9,13 +9,13 @@ import {
 } from "@/types/trading";
 
 export const initialBrokerCredentials: BrokerCredentials = {
-  apiKey: "ups_live_948a27b841a049e29f4a",
-  apiSecret: "••••••••••••••••••••••••••••••••",
-  redirectUrl: "https://algo.niftyintraday.trade/api/callback/upstox",
-  accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.upstox.prod.session",
-  connectedAt: "03 Nov 2026, 09:15:04 IST",
-  accountName: "Immanuel Trading Desk",
-  ucc: "298410",
+  apiKey: process.env.NEXT_PUBLIC_UPSTOX_API_KEY || "ups_live_demo_key",
+  apiSecret: process.env.NEXT_PUBLIC_UPSTOX_API_SECRET || "••••••••••••••••",
+  redirectUrl: process.env.NEXT_PUBLIC_UPSTOX_REDIRECT_URI || "http://localhost:8000/api/v1/auth/callback",
+  accessToken: process.env.NEXT_PUBLIC_UPSTOX_ACCESS_TOKEN || "",
+  connectedAt: "04 Nov 2026, 10:11:30 IST",
+  accountName: process.env.NEXT_PUBLIC_UPSTOX_ACCOUNT_NAME || "IMMANUVEL D",
+  ucc: process.env.NEXT_PUBLIC_UPSTOX_UCC || "5GC3MG",
 };
 
 export const defaultStrategy: StrategyConfig = {

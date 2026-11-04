@@ -33,7 +33,8 @@ async def init_database():
         res = await session.execute(select(SystemConfig).limit(1))
         if not res.scalars().first():
             cfg = SystemConfig(
-                mode="LIVE",
+                mode="PAPER",
+                strategy_id="strat-gift-nifty-dir",
                 strategy_name="Gift Nifty Directional",
                 underlying="NIFTY",
                 strategy_status="STOPPED",

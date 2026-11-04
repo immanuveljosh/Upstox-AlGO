@@ -34,7 +34,7 @@ class OrderService:
         # 1. Backtest mode enforcement: strictly block order execution
         if config.mode == "BACKTEST":
             raise ModeRestrictionException(
-                "Order placement is disabled in Backtest mode. Backtest mode only permits historical market data queries. Switch to Live mode for order execution."
+                "Order placement is disabled in Backtest mode. Backtest mode only permits historical market data queries. Switch to Paper or Live mode for order execution."
             )
 
         # 2. Kill switch active check
@@ -45,23 +45,17 @@ class OrderService:
 
         # 3. Daily 1-trade limit enforcement for Gift Nifty Directional strategy
         today_date = datetime.now(IST).strftime("%Y-%m-%d")
-        if config.last_trade_date == today_date and config.trades_executed_today >= config.max_trades_per_day:
+        if config.last_trade_date != today_date:
+            config.trades_executed_today = 0
+            config.last_trade_date = today_date
+            await db.commit()
+
+        if config.trades_executed_today >= config.max_trades_per_day:
             raise RiskLimitBreachedException(
                 f"Maximum daily limit reached: Only 1 trade per day is permitted by the Gift Nifty Directional strategy."
             )
 
-        # 4. Connection check
-        is_connected, msg, _, _ = await broker_service.verify_connection(db)
-        if not is_connected:
-            return {
-                "connection_status": "connection_lost",
-                "data": None,
-                "message": msg or "Broker connection lost. Cannot place live orders.",
-            }
-
-        token_record = await broker_service.get_or_create_token_record(db)
-
-        # 5. Strike selection: Default strictly to ITM 3 (In-The-Money 3rd strike)
+        # 4. Strike selection: Default strictly to ITM 3 (In-The-Money 3rd strike)
         spot_price = 24878.50
         if strike is None:
             strike = strategy_service.calculate_itm3_strike(spot_price, option_type)
@@ -71,39 +65,25 @@ class OrderService:
         symbol = f"NIFTY {strike} {option_type}"
         client_order_id = f"UPX-{uuid.uuid4().hex[:8].upper()}"
 
-        # Upstox v2 API order payload structure (MIS / Intraday)
-        upstox_payload = {
-            "quantity": qty,
-            "product": "I",  # MIS / Intraday as specified
-            "validity": "DAY",
-            "price": price if order_type == "LIMIT" else 0.0,
-            "tag": "gift_nifty_dir",
-            "instrument_token": f"NSE_FO|{symbol}",
-            "order_type": order_type,
-            "transaction_type": "BUY",
-            "disclosed_quantity": 0,
-            "trigger_price": trigger_price if order_type == "SL" else 0.0,
-            "is_amo": False,
-        }
-
-        # Calculate Capital Risk limits (5% SL, 6% Target)
+        # Calculate Capital Risk limits (5% SL, 6% Target of total capital)
         sl_amount = round(config.total_capital * (config.stoploss_capital_pct / 100.0), 2)
         target_amount = round(config.total_capital * (config.target_capital_pct / 100.0), 2)
 
-        try:
-            # Place order on Upstox OMS
-            resp = await upstox_client.place_order(token_record.access_token, upstox_payload)
-            upstox_order_id = resp.get("data", {}).get("order_id", f"UP-{uuid.uuid4().hex[:6]}")
+        est_price = price if price > 0 else (218.40 if option_type == "CE" else 204.60)
+
+        # 5. Execution branching based on Mode (PAPER vs LIVE)
+        if config.mode == "PAPER":
+            # Paper Trading Mode: Safely simulated execution
+            upstox_order_id = f"PAPER-{uuid.uuid4().hex[:8].upper()}"
             status = "PLACED"
             reject_reason = None
 
-            # Mark daily trade executed
             config.last_trade_date = today_date
             config.trades_executed_today += 1
             await db.commit()
 
             log_critical_action(
-                "PLACE_ORDER_SUCCESS",
+                "PLACE_PAPER_ORDER_SUCCESS",
                 {
                     "symbol": symbol,
                     "strike": strike,
@@ -111,27 +91,81 @@ class OrderService:
                     "lots": actual_lots,
                     "qty": qty,
                     "order_id": client_order_id,
-                    "upstox_id": upstox_order_id,
+                    "mode": "PAPER",
                     "sl_amount_5pct": sl_amount,
                     "target_amount_6pct": target_amount,
                 },
             )
 
-        except Exception as exc:
-            logger.error(f"Upstox order execution error: {str(exc)}")
-            upstox_order_id = None
-            status = "REJECTED"
-            reject_reason = f"Upstox OMS Reject: {str(exc)}"
+        else:
+            # LIVE Trading Mode: Real Upstox OMS order routing
+            is_connected, msg, _, _ = await broker_service.verify_connection(db)
+            if not is_connected:
+                return {
+                    "connection_status": "connection_lost",
+                    "data": None,
+                    "message": msg or "Broker connection lost. Cannot place live orders.",
+                }
 
-            log_critical_action(
-                "PLACE_ORDER_REJECTED",
-                {
-                    "symbol": symbol,
-                    "lots": actual_lots,
-                    "qty": qty,
-                    "reason": reject_reason,
-                },
-            )
+            token_record = await broker_service.get_or_create_token_record(db)
+
+            # Upstox v2 API order payload structure (MIS / Intraday)
+            upstox_payload = {
+                "quantity": qty,
+                "product": "I",  # MIS / Intraday
+                "validity": "DAY",
+                "price": price if order_type == "LIMIT" else 0.0,
+                "tag": "gift_nifty_dir",
+                "instrument_token": f"NSE_FO|{symbol}",
+                "order_type": order_type,
+                "transaction_type": "BUY",
+                "disclosed_quantity": 0,
+                "trigger_price": trigger_price if order_type == "SL" else 0.0,
+                "is_amo": False,
+            }
+
+            try:
+                # Place order on Upstox OMS
+                resp = await upstox_client.place_order(token_record.access_token, upstox_payload)
+                upstox_order_id = resp.get("data", {}).get("order_id", f"UP-{uuid.uuid4().hex[:6]}")
+                status = "PLACED"
+                reject_reason = None
+
+                # Mark daily trade executed
+                config.last_trade_date = today_date
+                config.trades_executed_today += 1
+                await db.commit()
+
+                log_critical_action(
+                    "PLACE_ORDER_SUCCESS",
+                    {
+                        "symbol": symbol,
+                        "strike": strike,
+                        "selection": "ITM 3",
+                        "lots": actual_lots,
+                        "qty": qty,
+                        "order_id": client_order_id,
+                        "upstox_id": upstox_order_id,
+                        "sl_amount_5pct": sl_amount,
+                        "target_amount_6pct": target_amount,
+                    },
+                )
+
+            except Exception as exc:
+                logger.error(f"Upstox order execution error: {str(exc)}")
+                upstox_order_id = None
+                status = "REJECTED"
+                reject_reason = f"Upstox OMS Reject: {str(exc)}"
+
+                log_critical_action(
+                    "PLACE_ORDER_REJECTED",
+                    {
+                        "symbol": symbol,
+                        "lots": actual_lots,
+                        "qty": qty,
+                        "reason": reject_reason,
+                    },
+                )
 
         # Record in DB for audit trail
         db_order = Order(

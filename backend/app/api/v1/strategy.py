@@ -80,5 +80,30 @@ async def switch_mode(
     payload: ModeSwitchRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Switch trading mode: LIVE vs BACKTEST."""
-    return await strategy_service.switch_mode(db, payload.mode)
+    """Switch trading mode: PAPER (default), LIVE, or BACKTEST."""
+    return await strategy_service.switch_mode(
+        db, new_mode=payload.mode, confirm_live=bool(payload.confirm_live)
+    )
+
+
+@router.post("/backtest", response_model=APIResponse[dict])
+async def run_backtest(
+    from_date: str = Query("2026-01-01", description="Start date YYYY-MM-DD"),
+    to_date: str = Query("2026-11-03", description="End date YYYY-MM-DD"),
+    capital: Optional[float] = Query(None, description="Initial strategy capital"),
+    lots: Optional[int] = Query(None, description="Lot size"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Backtest default 'Gift Nifty Directional' strategy:
+    - Analyzes historical Gift Nifty 1-day gaps and NIFTY 3rd ITM options.
+    - Computes win rate, profit factor, drawdown, stop loss / target hits, and net P&L.
+    - If historical data unavailable, displays DATA UNAVAILABLE.
+    """
+    return await strategy_service.run_backtest(
+        db=db,
+        from_date=from_date,
+        to_date=to_date,
+        capital=capital,
+        lots=lots,
+    )

@@ -21,18 +21,34 @@ export const initialBrokerCredentials: BrokerCredentials = {
 export const defaultStrategy: StrategyConfig = {
   id: "strat-gift-nifty-dir",
   name: "Gift Nifty Directional",
+  underlying: "NIFTY 50 ONLY",
+  optionSelection: "ITM 3",
+  timeframe: "1-Day",
   description:
     "Gift Nifty Directional: Buy ITM 3 Call if 1-Day Gift Nifty is +80 or higher; Buy ITM 3 Put if -80 or lower. Traded strictly between 09:15-09:17 AM IST. Max 1 trade/day. Stop Loss = 5% capital, Target = 6% capital.",
   status: "STOPPED",
+  giftNiftyChange: 92.5,
+  giftNiftyChangePct: 0.38,
+  signal: "BULLISH",
+  selectedOption: "NIFTY 24750 CE",
+  entryPrice: 218.4,
+  totalCapital: 200000,
+  stoplossPercent: 5.0,
+  stoplossAmount: 10000, // 5% of ₹2,00,000
+  targetPercent: 6.0,
+  targetAmount: 12000, // 6% of ₹2,00,000
+  windowStatus: "CLOSED",
+  dailyTradeCount: 0,
+  maxDailyTrades: 1,
   lotSize: 25, // 25 per lot for Nifty
   lots: 2, // 50 quantity
-  stoplossPoints: 20, // 5% capital risk equivalent
-  targetPoints: 24, // 6% capital target equivalent
+  stoplossPoints: 200, // ₹10,000 / 50 qty = 200 pts equivalent
+  targetPoints: 240, // ₹12,000 / 50 qty = 240 pts equivalent
   maxDailyLoss: 10000, // 5% of Rs. 2,00,000 capital
   entryWindowStart: "09:15",
   entryWindowEnd: "09:17",
   autoSquareOffTime: "15:15",
-  indicator: "Gift Nifty 1-Day (+/- 80 pts) + ITM 3",
+  indicator: "GIFT NIFTY 1-Day (>=+80 CE / <=-80 PE) + 3rd ITM Only",
 };
 
 export const initialActivePosition: Position = {

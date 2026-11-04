@@ -9,10 +9,11 @@ class SystemConfig(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
-    # Trading Mode: LIVE or BACKTEST
-    mode: Mapped[str] = mapped_column(String(20), default="LIVE", nullable=False)
+    # Trading Mode: PAPER (default), LIVE, or BACKTEST
+    mode: Mapped[str] = mapped_column(String(20), default="PAPER", nullable=False)
 
     # Strategy: Gift Nifty Directional (Default Hard-Coded)
+    strategy_id: Mapped[str] = mapped_column(String(50), default="strat-gift-nifty-dir")
     strategy_name: Mapped[str] = mapped_column(String(100), default="Gift Nifty Directional")
     underlying: Mapped[str] = mapped_column(String(50), default="NIFTY")
     strategy_status: Mapped[str] = mapped_column(String(20), default="STOPPED")  # RUNNING / STOPPED

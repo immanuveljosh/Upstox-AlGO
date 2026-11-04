@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import {
   TradingMode,
   ConnectionStatus,
@@ -48,7 +48,14 @@ interface TradingContextType {
   closeActivePosition: () => void;
   toggleStrategy: () => void;
   updateStrategyLots: (lots: number) => void;
-  updateRiskSettings: (slPoints: number, maxLoss: number) => void;
+  updateRiskSettings: (slPercent: number, targetPercent: number) => void;
+  updateCapital: (capital: number) => void;
+  setGiftNiftyChange: (change: number) => void;
+  triggerStrategyEntry: (overrideChange?: number) => boolean;
+  isLiveConfirmOpen: boolean;
+  requestLiveMode: () => void;
+  confirmLiveMode: () => void;
+  cancelLiveMode: () => void;
   toasts: ToastMessage[];
   addToast: (toast: Omit<ToastMessage, "id">) => void;
   removeToast: (id: string) => void;
@@ -57,7 +64,10 @@ interface TradingContextType {
 const TradingContext = createContext<TradingContextType | undefined>(undefined);
 
 export function TradingProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setModeState] = useState<TradingMode>("LIVE");
+  // 1. Default mode is strictly PAPER TRADING
+  const [mode, setModeState] = useState<TradingMode>("PAPER");
+  const [isLiveConfirmOpen, setIsLiveConfirmOpen] = useState(false);
+
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("CONNECTED");
   const [niftyPrice, setNiftyPrice] = useState<number>(24878.5);
   const [niftyChange, setNiftyChange] = useState<number>(92.4);
@@ -71,19 +81,47 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   const [isKillSwitchModalOpen, setIsKillSwitchModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const addToast = (toast: Omit<ToastMessage, "id">) => {
+  const addToast = useCallback((toast: Omit<ToastMessage, "id">) => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { ...toast, id }]);
     setTimeout(() => {
       removeToast(id);
     }, 4500);
-  };
+  }, []);
 
   const removeToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Subtle real-time tick fluctuation when connected in LIVE mode
+  // Re-calculate dynamic 3rd ITM option whenever Spot or Gift Nifty changes
+  useEffect(() => {
+    const atm = Math.round(niftyPrice / 50) * 50;
+    const change = strategy.giftNiftyChange;
+    let signal: "BULLISH" | "BEARISH" | "NO_TRADE" = "NO_TRADE";
+    let selectedOption = "None (No Trade Zone)";
+    let entryPrice = 218.4;
+
+    if (change >= 80.0) {
+      signal = "BULLISH";
+      const strike = atm - 150; // 3rd ITM Call
+      selectedOption = `NIFTY ${strike} CE`;
+      entryPrice = 218.4;
+    } else if (change <= -80.0) {
+      signal = "BEARISH";
+      const strike = atm + 150; // 3rd ITM Put
+      selectedOption = `NIFTY ${strike} PE`;
+      entryPrice = 204.6;
+    }
+
+    setStrategy((prev) => ({
+      ...prev,
+      signal,
+      selectedOption,
+      entryPrice,
+    }));
+  }, [niftyPrice, strategy.giftNiftyChange]);
+
+  // Real-time tick fluctuation and Capital-based SL / Target monitor
   useEffect(() => {
     if (connectionStatus !== "CONNECTED") return;
 
@@ -96,13 +134,30 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
 
-      // Update position LTP if active
+      // Update active position LTP & check capital-based SL (-5%) and Target (+6%)
       setActivePosition((pos) => {
         if (!pos) return null;
         const tickMove = (Math.random() - 0.47) * 0.4;
         const newLtp = parseFloat(Math.max(10, pos.ltp + tickMove).toFixed(2));
         const newPnl = parseFloat(((newLtp - pos.buyPrice) * pos.qty).toFixed(2));
         const newPct = parseFloat((((newLtp - pos.buyPrice) / pos.buyPrice) * 100).toFixed(2));
+
+        // Capital risk conditions: 5% of strategy total capital, 6% Target
+        const slCapitalLimit = strategy.stoplossAmount; // e.g. ₹10,000 on ₹2L
+        const tgtCapitalLimit = strategy.targetAmount; // e.g. ₹12,000 on ₹2L
+
+        if (newPnl <= -slCapitalLimit) {
+          // Trigger Stop Loss auto exit
+          setTimeout(() => {
+            closePositionWithReason("STOP LOSS HIT (-5% Capital)");
+          }, 0);
+        } else if (newPnl >= tgtCapitalLimit) {
+          // Trigger Target Profit auto exit
+          setTimeout(() => {
+            closePositionWithReason("TARGET REACHED (+6% Capital)");
+          }, 0);
+        }
+
         return {
           ...pos,
           ltp: newLtp,
@@ -113,17 +168,74 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     }, 2400);
 
     return () => clearInterval(interval);
-  }, [connectionStatus]);
+  }, [connectionStatus, strategy.stoplossAmount, strategy.targetAmount]);
 
+  // Helper: Close position with specific exit reason
+  const closePositionWithReason = (reason: string) => {
+    setActivePosition((currPos) => {
+      if (!currPos) return null;
+      const exitOrder: Order = {
+        id: `ORD-EXIT-${Date.now().toString().slice(-5)}`,
+        time: new Date().toLocaleTimeString("en-GB"),
+        symbol: currPos.symbol,
+        strike: currPos.strike,
+        type: currPos.type,
+        lots: currPos.lots,
+        qty: currPos.qty,
+        price: currPos.buyPrice,
+        status: "CLOSED",
+        exitPrice: currPos.ltp,
+        exitTime: new Date().toLocaleTimeString("en-GB"),
+        pnl: currPos.pnl,
+        rejectReason: reason,
+      };
+
+      setOrders((prev) => [exitOrder, ...prev]);
+      setStats((prev) => ({
+        ...prev,
+        todayPnl: prev.todayPnl + currPos.pnl,
+        openPnl: 0,
+        marginUsed: 0,
+        marginAvailable: prev.totalCapital,
+      }));
+
+      addToast({
+        type: currPos.pnl >= 0 ? "success" : "warning",
+        title: `Auto Exit: ${reason}`,
+        message: `${currPos.symbol} closed @ ₹${currPos.ltp}. Realized P&L: ₹${currPos.pnl.toFixed(2)}`,
+      });
+
+      return null;
+    });
+  };
+
+  // Mode switching with safety check
   const setMode = (newMode: TradingMode) => {
-    setModeState(newMode);
+    if (newMode === "LIVE") {
+      requestLiveMode();
+    } else {
+      setModeState(newMode);
+      addToast({
+        type: "info",
+        title: `Mode: ${newMode} Active`,
+        message:
+          newMode === "PAPER"
+            ? "Paper Trading mode active: orders simulated safely without real capital risk."
+            : "Backtest mode active: testing historical candles and option chain.",
+      });
+    }
+  };
+
+  const requestLiveMode = () => setIsLiveConfirmOpen(true);
+  const cancelLiveMode = () => setIsLiveConfirmOpen(false);
+
+  const confirmLiveMode = () => {
+    setIsLiveConfirmOpen(false);
+    setModeState("LIVE");
     addToast({
-      type: "info",
-      title: `Switched to ${newMode} Mode`,
-      message:
-        newMode === "LIVE"
-          ? "Orders will now be routed to Upstox Live OMS."
-          : "Paper simulation active. Historical backtest replay enabled.",
+      type: "warning",
+      title: "LIVE TRADING ACTIVATED",
+      message: "Live mode active: real money orders will now be routed directly to Upstox OMS.",
     });
   };
 
@@ -133,7 +245,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       addToast({
         type: "error",
         title: "Broker Disconnected",
-        message: "Upstox WebSocket stream lost. Live updates suspended.",
+        message: "Upstox WebSocket feed lost. Live updates suspended.",
       });
     } else {
       setConnectionStatus("RECONNECTING");
@@ -148,65 +260,26 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const openKillSwitchModal = () => {
-    if (connectionStatus !== "CONNECTED") {
-      addToast({
-        type: "warning",
-        title: "Broker Offline",
-        message: "Kill switch requires an active broker connection to route square-off commands.",
-      });
-      return;
-    }
-    setIsKillSwitchModalOpen(true);
-  };
-
+  const openKillSwitchModal = () => setIsKillSwitchModalOpen(true);
   const closeKillSwitchModal = () => setIsKillSwitchModalOpen(false);
 
   const executeKillSwitch = () => {
-    if (connectionStatus !== "CONNECTED") return;
-
-    // Close any active position
     if (activePosition) {
-      const exitOrder: Order = {
-        id: `ORD-KILL-${Date.now().toString().slice(-5)}`,
-        time: new Date().toLocaleTimeString("en-GB"),
-        symbol: activePosition.symbol,
-        strike: activePosition.strike,
-        type: activePosition.type,
-        lots: activePosition.lots,
-        qty: activePosition.qty,
-        price: activePosition.buyPrice,
-        status: "CLOSED",
-        exitPrice: activePosition.ltp,
-        exitTime: new Date().toLocaleTimeString("en-GB"),
-        pnl: activePosition.pnl,
-      };
-
-      setOrders((prev) => [exitOrder, ...prev]);
-      setActivePosition(null);
+      closePositionWithReason("KILL SWITCH EMERGENCY EXIT");
     }
 
-    // Stop Strategy
     setStrategy((prev) => ({ ...prev, status: "STOPPED" }));
-
-    // Update stats
-    setStats((prev) => ({
-      ...prev,
-      openPnl: 0,
-      marginUsed: 0,
-      marginAvailable: prev.totalCapital,
-    }));
-
     setIsKillSwitchModalOpen(false);
     addToast({
       type: "error",
       title: "KILL SWITCH TRIGGERED",
-      message: "Emergency exit executed! All positions squared off & strategy halted.",
+      message: "Emergency stop engaged: All positions closed and strategy halted immediately.",
     });
   };
 
+  // Execute directional trade strictly with 3rd ITM strike selection
   const executeManualOrder = (type: "CE" | "PE", lotsOverride?: number): boolean => {
-    if (connectionStatus !== "CONNECTED") {
+    if (connectionStatus !== "CONNECTED" && mode === "LIVE") {
       addToast({
         type: "error",
         title: "Order Failed",
@@ -215,20 +288,34 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
+    // Daily 1-trade limit check
+    if (strategy.dailyTradeCount >= strategy.maxDailyTrades) {
+      addToast({
+        type: "warning",
+        title: "Daily Limit Reached",
+        message: "Strategy limit of maximum 1 trade per day has already been utilized.",
+      });
+      return false;
+    }
+
     const lots = lotsOverride || strategy.lots;
     const qty = lots * strategy.lotSize;
-    // Calculate ATM strike nearest 50
+
+    // Formula: 3rd ITM Strike
+    // Call ITM 3: ATM - 150
+    // Put ITM 3: ATM + 150
     const atmStrike = Math.round(niftyPrice / 50) * 50;
-    const premium = type === "CE" ? 148.5 : 134.2;
-    const orderId = `ORD-${Date.now().toString().slice(-5)}`;
+    const itm3Strike = type === "CE" ? atmStrike - 150 : atmStrike + 150;
+    const premium = type === "CE" ? 218.4 : 204.6;
+    const orderId = `UPX-${Date.now().toString().slice(-6)}`;
     const time = new Date().toLocaleTimeString("en-GB");
-    const symbol = `NIFTY ${atmStrike} ${type}`;
+    const symbol = `NIFTY ${itm3Strike} ${type}`;
 
     const newOrder: Order = {
       id: orderId,
       time,
       symbol,
-      strike: atmStrike,
+      strike: itm3Strike,
       type,
       lots,
       qty,
@@ -239,9 +326,13 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
 
     setOrders((prev) => [newOrder, ...prev]);
 
+    // Calculate Capital-based SL & Target
+    const slPts = parseFloat((strategy.stoplossAmount / qty).toFixed(1));
+    const tgtPts = parseFloat((strategy.targetAmount / qty).toFixed(1));
+
     setActivePosition({
       symbol,
-      strike: atmStrike,
+      strike: itm3Strike,
       type,
       lots,
       qty,
@@ -249,23 +340,29 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       ltp: premium,
       pnl: 0,
       pnlPercent: 0,
-      stoploss: parseFloat((premium - strategy.stoplossPoints).toFixed(2)),
-      target: parseFloat((premium + strategy.targetPoints).toFixed(2)),
+      stoploss: parseFloat((premium - slPts).toFixed(2)),
+      target: parseFloat((premium + tgtPts).toFixed(2)),
       trailingSl: parseFloat((premium - 10).toFixed(2)),
       entryTime: time,
     });
 
+    // Increment daily trade count
+    setStrategy((prev) => ({
+      ...prev,
+      dailyTradeCount: prev.dailyTradeCount + 1,
+    }));
+
     setStats((prev) => ({
       ...prev,
       marginUsed: prev.marginUsed + premium * qty,
-      marginAvailable: prev.marginAvailable - premium * qty,
+      marginAvailable: Math.max(0, prev.marginAvailable - premium * qty),
       totalTrades: prev.totalTrades + 1,
     }));
 
     addToast({
       type: "success",
-      title: `Order Placed: ${symbol}`,
-      message: `Bought ${lots} Lots (${qty} Qty) @ ₹${premium.toFixed(2)} [${mode}]`,
+      title: `Order Placed (${mode} Mode)`,
+      message: `Bought ${symbol} (3rd ITM) - ${lots} Lots (${qty} Qty) @ ₹${premium.toFixed(2)}`,
     });
 
     return true;
@@ -273,54 +370,15 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
 
   const closeActivePosition = () => {
     if (!activePosition) return;
-    if (connectionStatus !== "CONNECTED") {
-      addToast({
-        type: "error",
-        title: "Action Blocked",
-        message: "Cannot close position: broker is disconnected.",
-      });
-      return;
-    }
-
-    const exitOrder: Order = {
-      id: `ORD-EXIT-${Date.now().toString().slice(-5)}`,
-      time: new Date().toLocaleTimeString("en-GB"),
-      symbol: activePosition.symbol,
-      strike: activePosition.strike,
-      type: activePosition.type,
-      lots: activePosition.lots,
-      qty: activePosition.qty,
-      price: activePosition.buyPrice,
-      status: "CLOSED",
-      exitPrice: activePosition.ltp,
-      exitTime: new Date().toLocaleTimeString("en-GB"),
-      pnl: activePosition.pnl,
-    };
-
-    setOrders((prev) => [exitOrder, ...prev]);
-    setActivePosition(null);
-
-    setStats((prev) => ({
-      ...prev,
-      todayPnl: prev.todayPnl + activePosition.pnl,
-      openPnl: 0,
-      marginUsed: 0,
-      marginAvailable: prev.totalCapital,
-    }));
-
-    addToast({
-      type: "info",
-      title: `Square-off: ${activePosition.symbol}`,
-      message: `Closed @ ₹${activePosition.ltp} | P&L: ₹${activePosition.pnl.toFixed(2)}`,
-    });
+    closePositionWithReason("Manual Square-off");
   };
 
   const toggleStrategy = () => {
-    if (connectionStatus !== "CONNECTED") {
+    if (connectionStatus !== "CONNECTED" && mode === "LIVE") {
       addToast({
         type: "error",
         title: "Connection Required",
-        message: "Strategy automation cannot run while broker is disconnected.",
+        message: "Live strategy automation cannot run while Upstox broker is disconnected.",
       });
       return;
     }
@@ -328,36 +386,102 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     const nextStatus = strategy.status === "RUNNING" ? "STOPPED" : "RUNNING";
     setStrategy((prev) => ({ ...prev, status: nextStatus }));
     addToast({
-      type: nextStatus === "RUNNING" ? "success" : "warning",
+      type: nextStatus === "RUNNING" ? "success" : "info",
       title: `Strategy ${nextStatus}`,
       message:
         nextStatus === "RUNNING"
-          ? "Directional trend scanner active (Supertrend + EMA). Waiting for signal."
-          : "Algo execution stopped. No new trades will be triggered automatically.",
+          ? "Gift Nifty Directional scanner is active. Monitoring 09:15-09:17 AM window."
+          : "Strategy stopped. Automated order execution suspended.",
     });
   };
 
   const updateStrategyLots = (lots: number) => {
     if (lots < 1 || lots > 50) return;
-    setStrategy((prev) => ({ ...prev, lots }));
+    const qty = lots * strategy.lotSize;
+    const slPts = Math.round(strategy.stoplossAmount / qty);
+    const tgtPts = Math.round(strategy.targetAmount / qty);
+
+    setStrategy((prev) => ({
+      ...prev,
+      lots,
+      stoplossPoints: slPts,
+      targetPoints: tgtPts,
+    }));
+
     addToast({
       type: "info",
-      title: "Strategy Updated",
-      message: `Lot size configured to ${lots} lots (${lots * defaultStrategy.lotSize} qty).`,
+      title: "Lots Configured",
+      message: `Configured ${lots} lots (${qty} qty). SL = ${slPts} pts, Target = ${tgtPts} pts.`,
     });
   };
 
-  const updateRiskSettings = (stoplossPoints: number, maxDailyLoss: number) => {
+  const updateRiskSettings = (stoplossPercent: number, targetPercent: number) => {
+    const slAmt = round2(strategy.totalCapital * (stoplossPercent / 100.0));
+    const tgtAmt = round2(strategy.totalCapital * (targetPercent / 100.0));
+    const qty = strategy.lots * strategy.lotSize;
+
     setStrategy((prev) => ({
       ...prev,
-      stoplossPoints,
-      maxDailyLoss,
+      stoplossPercent,
+      targetPercent,
+      stoplossAmount: slAmt,
+      targetAmount: tgtAmt,
+      stoplossPoints: Math.round(slAmt / qty),
+      targetPoints: Math.round(tgtAmt / qty),
     }));
+
     addToast({
       type: "success",
       title: "Risk Parameters Saved",
-      message: `Stoploss: ${stoplossPoints} pts | Daily Loss Cap: ₹${maxDailyLoss.toLocaleString()}`,
+      message: `SL: ${stoplossPercent}% (₹${slAmt.toLocaleString()}) | Target: ${targetPercent}% (₹${tgtAmt.toLocaleString()})`,
     });
+  };
+
+  const updateCapital = (totalCapital: number) => {
+    const slAmt = round2(totalCapital * (strategy.stoplossPercent / 100.0));
+    const tgtAmt = round2(totalCapital * (strategy.targetPercent / 100.0));
+    const qty = strategy.lots * strategy.lotSize;
+
+    setStrategy((prev) => ({
+      ...prev,
+      totalCapital,
+      stoplossAmount: slAmt,
+      targetAmount: tgtAmt,
+      stoplossPoints: Math.round(slAmt / qty),
+      targetPoints: Math.round(tgtAmt / qty),
+    }));
+
+    addToast({
+      type: "info",
+      title: "Capital Updated",
+      message: `Total Strategy Capital set to ₹${totalCapital.toLocaleString()}`,
+    });
+  };
+
+  const setGiftNiftyChange = (change: number) => {
+    const pct = round2((change / 24900) * 100);
+    setStrategy((prev) => ({
+      ...prev,
+      giftNiftyChange: change,
+      giftNiftyChangePct: pct,
+    }));
+  };
+
+  // Trigger strategy entry explicitly based on current or overridden Gift Nifty change
+  const triggerStrategyEntry = (overrideChange?: number): boolean => {
+    const change = overrideChange !== undefined ? overrideChange : strategy.giftNiftyChange;
+    if (change >= 80.0) {
+      return executeManualOrder("CE");
+    } else if (change <= -80.0) {
+      return executeManualOrder("PE");
+    } else {
+      addToast({
+        type: "info",
+        title: "NO TRADE",
+        message: `Gift Nifty change (${change > 0 ? "+" : ""}${change} pts) is inside neutral zone (-80 to +80). No trade generated.`,
+      });
+      return false;
+    }
   };
 
   const updateCredentials = (updates: Partial<BrokerCredentials>) => {
@@ -395,6 +519,13 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
         toggleStrategy,
         updateStrategyLots,
         updateRiskSettings,
+        updateCapital,
+        setGiftNiftyChange,
+        triggerStrategyEntry,
+        isLiveConfirmOpen,
+        requestLiveMode,
+        confirmLiveMode,
+        cancelLiveMode,
         toasts,
         addToast,
         removeToast,
@@ -405,6 +536,10 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+function round2(num: number): number {
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+}
+
 export function useTrading() {
   const context = useContext(TradingContext);
   if (!context) {
@@ -412,4 +547,3 @@ export function useTrading() {
   }
   return context;
 }
-

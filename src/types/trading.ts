@@ -2,7 +2,7 @@ export type OptionType = "CE" | "PE";
 
 export type OrderStatus = "PLACED" | "CLOSED" | "REJECTED";
 
-export type TradingMode = "BACKTEST" | "LIVE";
+export type TradingMode = "PAPER" | "LIVE" | "BACKTEST";
 
 export type ConnectionStatus = "CONNECTED" | "DISCONNECTED" | "RECONNECTING";
 
@@ -41,8 +41,24 @@ export interface Position {
 export interface StrategyConfig {
   id: string;
   name: string;
+  underlying: string;
   description: string;
   status: "RUNNING" | "STOPPED";
+  optionSelection: "ITM 3";
+  timeframe: string;
+  giftNiftyChange: number; // e.g. +92.5
+  giftNiftyChangePct: number; // e.g. +0.38
+  signal: "BULLISH" | "BEARISH" | "NO_TRADE";
+  selectedOption: string; // e.g. "NIFTY 24700 CE"
+  entryPrice: number;
+  totalCapital: number;
+  stoplossPercent: number; // 5%
+  stoplossAmount: number; // ₹10,000 on ₹2L
+  targetPercent: number; // 6%
+  targetAmount: number; // ₹12,000 on ₹2L
+  windowStatus: "OPEN" | "CLOSED" | "PRE_MARKET";
+  dailyTradeCount: number; // 0 or 1
+  maxDailyTrades: number; // 1
   lotSize: number; // e.g. 25 shares per lot
   lots: number; // e.g. 2 lots = 50 qty
   stoplossPoints: number;

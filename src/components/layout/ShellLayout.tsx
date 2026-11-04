@@ -14,8 +14,8 @@ export function ShellLayout({ children }: { children: React.ReactNode }) {
   const { mode } = useTrading();
   const pathname = usePathname();
 
-  // If on login page, render full-bleed clean login screen
-  if (pathname === "/login") {
+  // If on login or auth callback page, render full-bleed clean screen
+  if (pathname === "/login" || pathname === "/auth/callback") {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
         {children}

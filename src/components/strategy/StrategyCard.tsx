@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTrading } from "@/context/TradingContext";
 import { formatINRInteger } from "@/lib/utils";
 import {
@@ -34,6 +34,11 @@ export function StrategyCard() {
   const [lotCount, setLotCount] = useState<number>(strategy.lots);
   const [capitalInput, setCapitalInput] = useState<number>(strategy.totalCapital);
   const [testGapInput, setTestGapInput] = useState<number>(strategy.giftNiftyChange);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const isConnected = connectionStatus === "CONNECTED";
   const isRunning = strategy.status === "RUNNING";
@@ -66,7 +71,7 @@ export function StrategyCard() {
   };
 
   return (
-    <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden shadow-lg">
+    <div suppressHydrationWarning className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden shadow-lg">
       {/* Top Header Banner */}
       <div className="p-6 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/40 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>

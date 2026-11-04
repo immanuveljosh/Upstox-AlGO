@@ -135,7 +135,7 @@ export default function StrategyPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div suppressHydrationWarning className="space-y-6">
       {/* Page Header */}
       <div>
         <div className="flex items-center gap-2">

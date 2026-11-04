@@ -52,6 +52,15 @@ class MarketService:
             change_pct = round((change / prev_close) * 100, 2) if prev_close else 0.0
             atm_strike = int(round(spot_price / 50.0) * 50)
 
+            now_ist = ist_now()
+            is_open = (
+                now_ist.weekday() < 5
+                and now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
+                <= now_ist
+                <= now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+            )
+            market_status = "LIVE" if is_open else "MARKET CLOSED"
+
             return {
                 "connection_status": "connected",
                 "data": {
@@ -59,8 +68,9 @@ class MarketService:
                     "spot_price": spot_price,
                     "change": change,
                     "change_pct": change_pct,
-                    "timestamp": format_ist_display(ist_now()) or "",
+                    "timestamp": format_ist_display(now_ist) or "",
                     "atm_strike": atm_strike,
+                    "market_status": market_status,
                 },
                 "message": "Nifty spot quote retrieved.",
             }

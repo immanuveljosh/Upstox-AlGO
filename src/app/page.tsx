@@ -2,7 +2,7 @@
 
 import React from "react";
 import { QuickStats } from "@/components/dashboard/QuickStats";
-import { NiftyChart } from "@/components/dashboard/NiftyChart";
+import { NiftyLivePrice } from "@/components/dashboard/NiftyLivePrice";
 import { PositionCard } from "@/components/dashboard/PositionCard";
 import { ManualOrderPanel } from "@/components/dashboard/ManualOrderPanel";
 import LotSizeCalculator from "@/components/dashboard/LotSizeCalculator";
@@ -33,14 +33,10 @@ export default function DashboardPage() {
       {/* Row 1: Quick Stats (Open P&L, Today's P&L, Margin Used, Win Rate) */}
       <QuickStats />
 
-      {/* Row 2: Live Chart & Active Position Card */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch">
-        <div className="lg:col-span-7 xl:col-span-8 flex flex-col">
-          <NiftyChart />
-        </div>
-        <div className="lg:col-span-5 xl:col-span-4 flex flex-col">
-          <PositionCard />
-        </div>
+      {/* Row 2: Live Spot Price & Active Position Card */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+        <NiftyLivePrice />
+        <PositionCard />
       </div>
 
       {/* Row 3: Manual Directional Order Panel & Professional Lot Size Calculator */}

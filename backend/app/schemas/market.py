@@ -9,6 +9,7 @@ class NiftySpotData(BaseModel):
     change_pct: float
     timestamp: str
     atm_strike: int
+    market_status: str = "MARKET CLOSED"
 
 
 class GiftNiftyData(BaseModel):

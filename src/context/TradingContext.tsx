@@ -40,6 +40,8 @@ interface TradingContextType {
   niftyPrice: number;
   niftyChange: number;
   niftyChangePct: number;
+  niftyTimestamp: string | null;
+  marketStatus: "LIVE" | "MARKET CLOSED";
   activePosition: Position | null;
   orders: Order[];
   strategy: StrategyConfig;
@@ -81,6 +83,8 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   const [niftyPrice, setNiftyPrice] = useState<number>(0);
   const [niftyChange, setNiftyChange] = useState<number>(0);
   const [niftyChangePct, setNiftyChangePct] = useState<number>(0);
+  const [niftyTimestamp, setNiftyTimestamp] = useState<string | null>(null);
+  const [marketStatus, setMarketStatus] = useState<"LIVE" | "MARKET CLOSED">("MARKET CLOSED");
 
   const [activePosition, setActivePosition] = useState<Position | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -313,6 +317,12 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
           setNiftyPrice(Number(spotJson.data.spot_price));
           setNiftyChange(Number(spotJson.data.change || 0));
           setNiftyChangePct(Number(spotJson.data.change_pct || 0));
+          if (spotJson.data.timestamp) {
+            setNiftyTimestamp(String(spotJson.data.timestamp));
+          }
+          if (spotJson.data.market_status) {
+            setMarketStatus(spotJson.data.market_status as "LIVE" | "MARKET CLOSED");
+          }
         }
       }
 
@@ -990,6 +1000,8 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
         niftyPrice,
         niftyChange,
         niftyChangePct,
+        niftyTimestamp,
+        marketStatus,
         activePosition,
         orders,
         strategy,

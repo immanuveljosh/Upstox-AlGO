@@ -156,6 +156,7 @@ class OrderService:
                 },
             )
 
+        now_utc = datetime.utcnow()
         db_order = Order(
             client_order_id=client_order_id,
             upstox_order_id=upstox_order_id,
@@ -170,7 +171,11 @@ class OrderService:
             status=status,
             mode=config.mode,
             reject_reason=reject_reason,
-            placed_at=datetime.utcnow(),
+            placed_at=now_utc,
+            signal_time=now_utc,
+            broker_confirmed_at=now_utc if upstox_order_id else None,
+            expected_price=price if price > 0 else None,
+            slippage=0.0,
         )
         db.add(db_order)
         await db.commit()

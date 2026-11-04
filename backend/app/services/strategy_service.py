@@ -1042,6 +1042,11 @@ class StrategyService:
                 open_order.exit_time = datetime.utcnow()
                 open_order.realized_pnl = net_pnl
                 open_order.reject_reason = exit_reason
+                open_order.exit_reason = (
+                    "SL" if "SL" in exit_reason
+                    else ("Target" if "TARGET" in exit_reason
+                    else ("Time Exit" if "TIME_EXIT" in exit_reason else exit_reason))
+                )
                 await db.commit()
                 actions_taken.append(f"Position {open_order.symbol} closed: {exit_reason}")
                 log_critical_action(

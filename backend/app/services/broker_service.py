@@ -30,9 +30,22 @@ class BrokerService:
         if not BrokerService._tables_initialized:
             from backend.app.core.database import engine
             from backend.app.models import Base
+            from sqlalchemy import text
 
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
+                # Check and add optional execution monitoring columns to orders table if missing
+                for col_name, col_type in [
+                    ("expected_price", "FLOAT"),
+                    ("slippage", "FLOAT"),
+                    ("signal_time", "DATETIME"),
+                    ("broker_confirmed_at", "DATETIME"),
+                    ("exit_reason", "VARCHAR(100)"),
+                ]:
+                    try:
+                        await conn.execute(text(f"ALTER TABLE orders ADD COLUMN {col_name} {col_type}"))
+                    except Exception:
+                        pass
             BrokerService._tables_initialized = True
 
     async def get_or_create_token_record(self, db: AsyncSession) -> BrokerToken:

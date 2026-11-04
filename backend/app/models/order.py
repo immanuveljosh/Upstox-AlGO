@@ -33,3 +33,11 @@ class Order(Base, TimestampMixin):
     exit_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     realized_pnl: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
+    # Strategy Intelligence & Execution Monitoring telemetry
+    expected_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    slippage: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    signal_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    broker_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    exit_reason: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+

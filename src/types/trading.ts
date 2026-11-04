@@ -320,3 +320,111 @@ export interface BacktestRunItem {
   overall_result: string;
   created_at?: string | null;
 }
+
+export interface SignalAnalysisItem {
+  trade_date: string;
+  signal_time?: string | null;
+  gift_nifty_change: number | null;
+  gift_nifty_source?: string | null;
+  signal: DirectionalSignal | string;
+  signal_strength_points?: number | null;
+  signal_strength_category: string;
+  executed_symbol?: string | null;
+  executed_status: string;
+  is_missed: boolean;
+  missed_reason?: string | null;
+}
+
+export interface ExecutionMonitoringItem {
+  trade_date: string;
+  client_order_id: string;
+  upstox_order_id?: string | null;
+  symbol: string;
+  option_type: OptionType | string;
+  strike: number;
+  lots: number;
+  lot_size: number;
+  quantity: number;
+  signal_timestamp?: string | null;
+  order_submission_timestamp?: string | null;
+  broker_confirmation_timestamp?: string | null;
+  latency_ms?: number | null;
+  expected_price?: number | null;
+  actual_fill_price: number;
+  slippage_points?: number | null;
+  slippage_pct?: number | null;
+  exit_timestamp?: string | null;
+  exit_price?: number | null;
+  gross_pnl?: number | null;
+  charges?: number | null;
+  net_pnl?: number | null;
+  exit_reason?: string | null;
+  status: string;
+  rejection_details?: string | null;
+}
+
+export interface MonthlyHeatmapItem {
+  year: number;
+  month: number;
+  month_name: string;
+  year_month: string;
+  gross_pnl: number;
+  net_pnl: number;
+  total_charges: number;
+  trades_count: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate_pct: number;
+  roi_pct: number;
+  status: "PROFIT" | "LOSS" | "BREAK EVEN" | "NO_TRADES" | string;
+}
+
+export interface IntelligencePnlSummary {
+  total_trading_days: number;
+  total_signals: number;
+  call_signals: number;
+  put_signals: number;
+  no_trade_signals: number;
+  missed_signals: number;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  winning_days: number;
+  losing_days: number;
+  breakeven_days: number;
+  win_rate_pct: number;
+  initial_capital: number;
+  final_capital: number;
+  gross_profit: number;
+  gross_loss: number;
+  total_charges: number;
+  net_pnl: number;
+  roi_pct: number;
+  avg_profit_per_win: number;
+  avg_loss_per_loss: number;
+  avg_trade_pnl: number;
+  max_drawdown_amount: number;
+  max_drawdown_pct: number;
+  consecutive_wins_max: number;
+  consecutive_losses_max: number;
+  profit_factor?: number | null;
+  overall_result: string;
+}
+
+export interface StrategyIntelligenceData {
+  strategy_id: string;
+  strategy_name: string;
+  mode: "LIVE" | "BACKTEST";
+  duration_code: string;
+  duration_label: string;
+  start_date: string;
+  end_date: string;
+  data_available: boolean;
+  summary: IntelligencePnlSummary;
+  equity_curve: { date: string; equity: number; pnl: number; drawdown: number }[];
+  monthly_heatmap: MonthlyHeatmapItem[];
+  signals: SignalAnalysisItem[];
+  executions: ExecutionMonitoringItem[];
+  message: string;
+}
+

@@ -14,7 +14,6 @@ import {
   Shield,
   Compass,
   History,
-  Brain,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -58,13 +57,6 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
       icon: History,
       badge: "1M–1Y",
       badgeColor: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-    },
-    {
-      label: "Intelligence",
-      href: "/strategy-intelligence",
-      icon: Brain,
-      badge: "PRO",
-      badgeColor: "bg-purple-500/10 text-purple-400 border-purple-500/20",
     },
     {
       label: "Orders",

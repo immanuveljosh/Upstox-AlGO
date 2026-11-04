@@ -21,7 +21,7 @@ async def trigger_kill_switch(db: AsyncSession = Depends(get_db)):
 
 @router.get("/limits", response_model=APIResponse[RiskLimitsData])
 async def get_risk_limits(db: AsyncSession = Depends(get_db)):
-    """Get active risk limits, 5% stoploss, 6% target, and daily trade limit."""
+    """Get active risk limits, 4% stoploss, 5% target, and daily trade limit."""
     return await risk_service.get_risk_limits(db)
 
 

@@ -8,12 +8,35 @@ from backend.app.models.system_config import SystemConfig
 from backend.app.services.upstox_client import upstox_client
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
+from backend.app.strategy.nifty_directional import (
+    STRATEGY_ID,
+    STRATEGY_NAME,
+    UNDERLYING,
+    OPTION_SELECTION,
+    DEFAULT_SIGNAL_THRESHOLD,
+    DEFAULT_STOPLOSS_CAPITAL_PCT,
+    DEFAULT_TARGET_CAPITAL_PCT,
+    DEFAULT_TOTAL_CAPITAL,
+    DEFAULT_LOTS,
+)
 
 
 class BrokerService:
     """Central service managing Upstox credentials, token validation, and connection telemetry."""
 
+    _tables_initialized: bool = False
+
+    async def _ensure_tables(self) -> None:
+        if not BrokerService._tables_initialized:
+            from backend.app.core.database import engine
+            from backend.app.models import Base
+
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            BrokerService._tables_initialized = True
+
     async def get_or_create_token_record(self, db: AsyncSession) -> BrokerToken:
+        await self._ensure_tables()
         stmt = select(BrokerToken).limit(1)
         result = await db.execute(stmt)
         record = result.scalars().first()
@@ -31,29 +54,49 @@ class BrokerService:
         return record
 
     async def get_or_create_config(self, db: AsyncSession) -> SystemConfig:
+        await self._ensure_tables()
         stmt = select(SystemConfig).limit(1)
         result = await db.execute(stmt)
         config = result.scalars().first()
         if not config:
             config = SystemConfig(
                 mode=settings.DEFAULT_TRADING_MODE,
-                strategy_name="Gift Nifty Directional",
-                underlying="NIFTY",
+                strategy_id=STRATEGY_ID,
+                strategy_name=STRATEGY_NAME,
+                underlying=UNDERLYING,
                 strategy_status="STOPPED",
-                gift_nifty_signal_threshold=80.0,
-                option_selection="ITM 3",
-                entry_window_start="09:15",
-                entry_window_end="09:17",
+                gift_nifty_signal_threshold=DEFAULT_SIGNAL_THRESHOLD,
+                option_selection=OPTION_SELECTION,
+                entry_window_start="09:15:00",
+                entry_window_end="09:17:00",
                 max_trades_per_day=1,
-                total_capital=200000.0,
-                stoploss_capital_pct=5.0,
-                target_capital_pct=6.0,
+                total_capital=DEFAULT_TOTAL_CAPITAL,
+                stoploss_capital_pct=DEFAULT_STOPLOSS_CAPITAL_PCT,
+                target_capital_pct=DEFAULT_TARGET_CAPITAL_PCT,
                 lot_size=settings.NIFTY_LOT_SIZE,
-                lots=2,
+                lots=DEFAULT_LOTS,
             )
             db.add(config)
             await db.commit()
             await db.refresh(config)
+        else:
+            # Migrate any legacy strategy defaults to Nifty Directional (4% SL / 5% Target)
+            mutated = False
+            if config.strategy_id != STRATEGY_ID or config.strategy_name != STRATEGY_NAME:
+                config.strategy_id = STRATEGY_ID
+                config.strategy_name = STRATEGY_NAME
+                if config.stoploss_capital_pct == 5.0 and config.target_capital_pct == 6.0:
+                    config.stoploss_capital_pct = DEFAULT_STOPLOSS_CAPITAL_PCT
+                    config.target_capital_pct = DEFAULT_TARGET_CAPITAL_PCT
+                config.entry_window_start = "09:15:00"
+                config.entry_window_end = "09:17:00"
+                mutated = True
+            if config.lot_size == 25:
+                config.lot_size = settings.NIFTY_LOT_SIZE
+                mutated = True
+            if mutated:
+                await db.commit()
+                await db.refresh(config)
         return config
 
     async def verify_connection(
@@ -70,13 +113,11 @@ class BrokerService:
             await db.commit()
             return False, "No Upstox access token configured. Please authenticate via OAuth or enter access token.", None, 0
 
-        # Ping Upstox profile endpoint to verify live session
         start_time = time.time()
         try:
             profile_response = await upstox_client.get_profile(token_record.access_token)
             latency_ms = int((time.time() - start_time) * 1000)
 
-            # Update token record cache
             token_record.is_valid = True
             token_record.last_verified_at = datetime.utcnow()
             user_data = profile_response.get("data", {})
@@ -106,4 +147,3 @@ class BrokerService:
 
 
 broker_service = BrokerService()
-

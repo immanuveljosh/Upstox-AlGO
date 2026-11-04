@@ -15,6 +15,7 @@ import {
   Copy,
   CheckCircle2,
   Info,
+  AlertCircle,
 } from "lucide-react";
 
 export default function LoginPage() {
@@ -173,6 +174,16 @@ export default function LoginPage() {
                 <div className="font-mono text-[11px] text-slate-300 truncate">
                   {redirectUri}
                 </div>
+              </div>
+
+              <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-slate-300 space-y-1">
+                <div className="flex items-center gap-1.5 font-semibold text-amber-300">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>Troubleshooting UDAPI100016 (Invalid Credentials):</span>
+                </div>
+                <p className="text-slate-400 text-[10px] leading-relaxed">
+                  The Redirect URL in your <a href="https://developer.upstox.com" target="_blank" rel="noopener noreferrer" className="underline text-emerald-400 font-medium">Upstox Developer Console</a> must exactly match <code>{redirectUri}</code>. Do not enter an Upstox URL like <em>api-v2.upstox.com/login...</em> or leave it mismatched.
+                </p>
               </div>
 
               {/* OAuth Action Button */}

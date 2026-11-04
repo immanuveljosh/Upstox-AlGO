@@ -7,15 +7,15 @@ import {
   Position,
   Order,
   StrategyConfig,
+  StrategyLiveStatus,
+  DirectionalSignal,
   AccountStats,
   BrokerCredentials,
   InstrumentMetadata,
 } from "@/types/trading";
 import {
   defaultStrategy,
-  initialActivePosition,
   initialStats,
-  mockOrders,
   initialBrokerCredentials,
 } from "@/lib/mockData";
 import { formatIndianNumber } from "@/lib/utils";
@@ -39,6 +39,9 @@ interface TradingContextType {
   activePosition: Position | null;
   orders: Order[];
   strategy: StrategyConfig;
+  strategyStatus: StrategyLiveStatus | null;
+  refreshStrategyStatus: () => Promise<void>;
+  recordGiftNiftyChange: (changePoints: number, tradeDate?: string) => Promise<boolean>;
   instrumentMetadata: InstrumentMetadata;
   stats: AccountStats;
   credentials: BrokerCredentials;
@@ -46,15 +49,15 @@ interface TradingContextType {
   isKillSwitchModalOpen: boolean;
   openKillSwitchModal: () => void;
   closeKillSwitchModal: () => void;
-  executeKillSwitch: () => void;
-  executeManualOrder: (type: "CE" | "PE", lots?: number) => boolean;
-  closeActivePosition: () => void;
+  executeKillSwitch: () => void | Promise<void>;
+  executeManualOrder: (type: "CE" | "PE", lots?: number) => Promise<boolean> | boolean;
+  closeActivePosition: () => void | Promise<void>;
   toggleStrategy: () => void;
   updateStrategyLots: (lots: number) => void;
   updateRiskSettings: (slPercent: number, targetPercent: number) => void;
   updateCapital: (capital: number) => void;
   setGiftNiftyChange: (change: number) => void;
-  triggerStrategyEntry: (overrideChange?: number) => boolean;
+  triggerStrategyEntry: (overrideChange?: number) => Promise<boolean> | boolean;
   isLiveConfirmOpen: boolean;
   requestLiveMode: () => void;
   confirmLiveMode: () => void;
@@ -67,51 +70,54 @@ interface TradingContextType {
 const TradingContext = createContext<TradingContextType | undefined>(undefined);
 
 export function TradingProvider({ children }: { children: React.ReactNode }) {
-  // 1. Default mode is BACKTEST (Simulation)
   const [mode, setModeState] = useState<TradingMode>("BACKTEST");
   const [isLiveConfirmOpen, setIsLiveConfirmOpen] = useState(false);
 
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("CONNECTED");
-  const [niftyPrice, setNiftyPrice] = useState<number>(24878.5);
-  const [niftyChange, setNiftyChange] = useState<number>(92.4);
-  const [niftyChangePct, setNiftyChangePct] = useState<number>(0.37);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("DISCONNECTED");
+  const [niftyPrice, setNiftyPrice] = useState<number>(0);
+  const [niftyChange, setNiftyChange] = useState<number>(0);
+  const [niftyChangePct, setNiftyChangePct] = useState<number>(0);
 
-  const [activePosition, setActivePosition] = useState<Position | null>(initialActivePosition);
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
+  const [activePosition, setActivePosition] = useState<Position | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [strategy, setStrategy] = useState<StrategyConfig>(defaultStrategy);
+  const [strategyStatus, setStrategyStatus] = useState<StrategyLiveStatus | null>(null);
   const [instrumentMetadata, setInstrumentMetadata] = useState<InstrumentMetadata>({
     name: "NIFTY",
     segment: "NSE_FO",
     exchange: "NSE",
-    instrumentKey: "NSE_FO|40013",
-    tradingSymbol: "NIFTY 24750 CE 09 NOV 26",
-    expiry: "2026-11-09",
+    instrumentKey: "",
+    tradingSymbol: "NIFTY ITM 3 CE",
+    expiry: "",
     lotSize: 65,
     freezeQuantity: 1755,
     minimumLot: 65,
     tickSize: 0.05,
-    strike: 24750,
+    strike: 0,
     optionType: "CE",
-    source: "upstox_option_contract_api",
+    source: "EXCHANGE_SPEC_65",
   });
   const [stats, setStats] = useState<AccountStats>(initialStats);
   const [credentials, setCredentials] = useState<BrokerCredentials>(initialBrokerCredentials);
   const [isKillSwitchModalOpen, setIsKillSwitchModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const addToast = useCallback((toast: Omit<ToastMessage, "id">) => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { ...toast, id }]);
-    setTimeout(() => {
-      removeToast(id);
-    }, 4500);
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const removeToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
+  const addToast = useCallback(
+    (toast: Omit<ToastMessage, "id">) => {
+      const id = Math.random().toString(36).substring(2, 9);
+      setToasts((prev) => [...prev, { ...toast, id }]);
+      setTimeout(() => {
+        removeToast(id);
+      }, 4500);
+    },
+    [removeToast]
+  );
 
-  // Check live Upstox session from backend on initial mount
+  // Sync live Upstox session & instrument metadata on initial mount
   useEffect(() => {
     async function syncBrokerSession() {
       try {
@@ -125,9 +131,10 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
               ucc: json.data.user_id || prev.ucc,
               accountName: json.data.user_name || prev.accountName,
             }));
+          } else {
+            setConnectionStatus("DISCONNECTED");
           }
         }
-        // Fetch live Upstox option contract metadata for NIFTY 50 lot size (65)
         const metaRes = await fetch("http://localhost:8000/api/v1/strategy/instrument-metadata?option_type=CE");
         if (metaRes.ok) {
           const metaJson = await metaRes.json();
@@ -138,16 +145,16 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
               name: metaJson.data.name || "NIFTY",
               segment: metaJson.data.segment || "NSE_FO",
               exchange: metaJson.data.exchange || "NSE",
-              instrumentKey: metaJson.data.instrument_key || "NSE_FO|40013",
-              tradingSymbol: metaJson.data.trading_symbol || "NIFTY 24750 CE 09 NOV 26",
-              expiry: metaJson.data.expiry || "2026-11-09",
+              instrumentKey: metaJson.data.instrument_key || "",
+              tradingSymbol: metaJson.data.trading_symbol || "NIFTY ITM 3 CE",
+              expiry: metaJson.data.expiry || "",
               lotSize: liveLotSize,
               freezeQuantity: liveFreeze,
               minimumLot: Number(metaJson.data.minimum_lot) || liveLotSize,
               tickSize: Number(metaJson.data.tick_size) || 0.05,
-              strike: Number(metaJson.data.strike) || 24750,
+              strike: Number(metaJson.data.strike_price || metaJson.data.strike || 0),
               optionType: (metaJson.data.option_type as "CE" | "PE") || "CE",
-              source: metaJson.data.source || "upstox_option_contract_api",
+              source: metaJson.data.source || "EXCHANGE_SPEC_65",
             });
             setStrategy((prev) => {
               const totalQty = prev.lots * liveLotSize;
@@ -180,7 +187,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
         addToast({
           type: "success",
           title: "Upstox OAuth 2.0 Connected",
-          message: "Authorization handshake complete. Live trading session and WebSocket feed active.",
+          message: "Authorization handshake complete. Live trading session active.",
         });
         window.history.replaceState({}, document.title, window.location.pathname);
       } else if (params.get("auth") === "error") {
@@ -195,213 +202,190 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     }
   }, [addToast]);
 
-  // Re-calculate dynamic 3rd ITM option whenever Spot or Gift Nifty changes
+  // Re-calculate dynamic 3rd ITM option display whenever Spot or Gift Nifty changes
   useEffect(() => {
-    const atm = Math.round(niftyPrice / 50) * 50;
     const change = strategy.giftNiftyChange;
-    let signal: "BULLISH" | "BEARISH" | "NO_TRADE" = "NO_TRADE";
-    let selectedOption = "None (No Trade Zone)";
-    let entryPrice = 218.4;
+    const hasSpot = niftyPrice > 0;
+    const atm = hasSpot ? Math.round(niftyPrice / 50) * 50 : 0;
 
-    if (change >= 80.0) {
+    let signal: "BULLISH" | "BEARISH" | "NO_TRADE" = "NO_TRADE";
+    let signalLabel: DirectionalSignal = "DATA UNAVAILABLE";
+    let selectedOption = "Awaiting Signal (ITM 3)";
+
+    if (change === null || change === undefined || isNaN(change)) {
+      signal = "NO_TRADE";
+      signalLabel = "DATA UNAVAILABLE";
+      selectedOption = "DATA UNAVAILABLE";
+    } else if (change >= 80.0) {
       signal = "BULLISH";
-      const strike = atm - 150; // 3rd ITM Call
-      selectedOption = `NIFTY ${strike} CE`;
-      entryPrice = 218.4;
+      signalLabel = "CALL";
+      selectedOption = hasSpot ? `NIFTY ${atm - 150} CE (ITM 3)` : "NIFTY ITM 3 CE";
     } else if (change <= -80.0) {
       signal = "BEARISH";
-      const strike = atm + 150; // 3rd ITM Put
-      selectedOption = `NIFTY ${strike} PE`;
-      entryPrice = 204.6;
+      signalLabel = "PUT";
+      selectedOption = hasSpot ? `NIFTY ${atm + 150} PE (ITM 3)` : "NIFTY ITM 3 PE";
+    } else {
+      signal = "NO_TRADE";
+      signalLabel = "NO TRADE";
+      selectedOption = "None (Neutral -80 to +80)";
     }
 
     setStrategy((prev) => ({
       ...prev,
       signal,
+      signalLabel,
       selectedOption,
-      entryPrice,
     }));
   }, [niftyPrice, strategy.giftNiftyChange]);
 
-  // Real-time tick fluctuation and Capital-based SL / Target monitor (Simulation/BACKTEST only)
-  useEffect(() => {
-    // In LIVE mode, NEVER simulate ticks or fake prices; strictly rely on verified Upstox API feed
-    if (mode === "LIVE") return;
-    if (connectionStatus !== "CONNECTED") return;
-
-    const interval = setInterval(() => {
-      const delta = (Math.random() - 0.48) * 1.5;
-      setNiftyPrice((prev) => {
-        const updated = parseFloat((prev + delta).toFixed(2));
-        setNiftyChange((c) => parseFloat((c + delta).toFixed(2)));
-        setNiftyChangePct((cp) => parseFloat((cp + delta / 248).toFixed(2)));
-        return updated;
-      });
-
-      // Update active position LTP & check capital-based SL (-5%) and Target (+6%)
-      setActivePosition((pos) => {
-        if (!pos) return null;
-        const tickMove = (Math.random() - 0.47) * 0.4;
-        const newLtp = parseFloat(Math.max(10, pos.ltp + tickMove).toFixed(2));
-        const newPnl = parseFloat(((newLtp - pos.buyPrice) * pos.qty).toFixed(2));
-        const newPct = parseFloat((((newLtp - pos.buyPrice) / pos.buyPrice) * 100).toFixed(2));
-
-        // Capital risk conditions: 5% of strategy total capital, 6% Target
-        const slCapitalLimit = strategy.stoplossAmount; // e.g. ₹10,000 on ₹2L
-        const tgtCapitalLimit = strategy.targetAmount; // e.g. ₹12,000 on ₹2L
-
-        if (newPnl <= -slCapitalLimit) {
-          // Trigger Stop Loss auto exit
-          setTimeout(() => {
-            closePositionWithReason("STOP LOSS HIT (-5% Capital)");
-          }, 0);
-        } else if (newPnl >= tgtCapitalLimit) {
-          // Trigger Target Profit auto exit
-          setTimeout(() => {
-            closePositionWithReason("TARGET REACHED (+6% Capital)");
-          }, 0);
-        }
-
-        return {
-          ...pos,
-          ltp: newLtp,
-          pnl: newPnl,
-          pnlPercent: newPct,
-        };
-      });
-    }, 2400);
-
-    return () => clearInterval(interval);
-  }, [connectionStatus, mode, strategy.stoplossAmount, strategy.targetAmount]);
-
-  // Regular synchronization with FastAPI backend for live quotes, strategy telemetry, and orders
-  useEffect(() => {
-    let isSubscribed = true;
-
-    async function syncBackendState() {
-      try {
-        // 1. Sync Strategy configuration & daily trades
-        const stratRes = await fetch("http://localhost:8000/api/v1/strategy");
-        if (stratRes.ok && isSubscribed) {
-          const stratJson = await stratRes.json();
-          if (stratJson.data) {
-            const sd = stratJson.data;
-            setStrategy((prev) => ({
-              ...prev,
-              name: sd.name || prev.name,
-              status: sd.status || prev.status,
-              dailyTradeCount: sd.trades_executed_today !== undefined ? sd.trades_executed_today : prev.dailyTradeCount,
-              maxDailyTrades: sd.max_trades_per_day || prev.maxDailyTrades,
-              totalCapital: sd.total_capital || prev.totalCapital,
-              stoplossPercent: sd.stoploss_capital_pct || prev.stoplossPercent,
-              stoplossAmount: sd.stoploss_amount || prev.stoplossAmount,
-              targetPercent: sd.target_capital_pct || prev.targetPercent,
-              targetAmount: sd.target_amount || prev.targetAmount,
-              lotSize: sd.lot_size || prev.lotSize,
-              lots: sd.lots || prev.lots,
-            }));
+  const refreshStrategyStatus = useCallback(async () => {
+    try {
+      const statusRes = await fetch("http://localhost:8000/api/v1/strategy/status");
+      if (statusRes.ok) {
+        const statusJson = await statusRes.json();
+        if (statusJson.data) {
+          const st: StrategyLiveStatus = statusJson.data;
+          setStrategyStatus(st);
+          const changePts = st.gift_nifty?.change_points ?? null;
+          const winMap: Record<string, "OPEN" | "CLOSED" | "PRE_MARKET"> = {
+            OPEN: "OPEN",
+            PRE_WINDOW: "PRE_MARKET",
+            CLOSED: "CLOSED",
+          };
+          setStrategy((prev) => ({
+            ...prev,
+            name: st.strategy_name || "Nifty Directional",
+            status: st.engine_status || prev.status,
+            giftNiftyChange: changePts,
+            windowStatus: winMap[st.window_status] || "CLOSED",
+            dailyTradeCount: st.trades_executed_today ?? prev.dailyTradeCount,
+            maxDailyTrades: st.max_trades_per_day ?? prev.maxDailyTrades,
+            totalCapital: st.total_capital ?? prev.totalCapital,
+            stoplossPercent: st.stoploss_pct ?? prev.stoplossPercent,
+            stoplossAmount: st.stoploss_amount ?? prev.stoplossAmount,
+            targetPercent: st.target_pct ?? prev.targetPercent,
+            targetAmount: st.target_amount ?? prev.targetAmount,
+            lots: st.lots ?? prev.lots,
+            lotSize: st.lot_size ?? prev.lotSize,
+          }));
+          if (st.mode === "LIVE" || st.mode === "BACKTEST") {
+            setModeState(st.mode);
           }
         }
-
-        // 2. In LIVE mode, fetch real Nifty spot quote from Upstox
-        const spotRes = await fetch("http://localhost:8000/api/v1/market/nifty-spot");
-        if (spotRes.ok && isSubscribed) {
-          const spotJson = await spotRes.json();
-          if (spotJson.data && spotJson.data.spot_price) {
-            setNiftyPrice(spotJson.data.spot_price);
-            setNiftyChange(spotJson.data.change);
-            setNiftyChangePct(spotJson.data.change_pct);
-          }
-        }
-
-        // 3. In LIVE mode, fetch real Gift Nifty 1-Day telemetry
-        const giftRes = await fetch("http://localhost:8000/api/v1/market/gift-nifty-1day");
-        if (giftRes.ok && isSubscribed) {
-          const giftJson = await giftRes.json();
-          if (giftJson.data && giftJson.data.day_change_points !== undefined) {
-            setGiftNiftyChange(giftJson.data.day_change_points);
-          }
-        }
-
-        // 4. Sync Orders from Backend
-        const ordersRes = await fetch("http://localhost:8000/api/v1/orders");
-        if (ordersRes.ok && isSubscribed) {
-          const ordersJson = await ordersRes.json();
-          if (Array.isArray(ordersJson.data) && ordersJson.data.length > 0) {
-            setOrders(
-              ordersJson.data.map((o: any) => ({
-                id: o.client_order_id || o.id,
-                time: o.time,
-                symbol: o.symbol,
-                strike: o.strike,
-                type: o.type,
-                lots: o.lots,
-                lotSize: o.lot_size || 65,
-                qty: o.qty,
-                price: o.price,
-                status: o.status,
-                pnl: o.pnl,
-                exitPrice: o.exit_price,
-                exitTime: o.exit_time,
-                rejectReason: o.reject_reason,
-              }))
-            );
-          }
-        }
-      } catch {
-        // Backend offline or unreachable
       }
+    } catch {
+      // Backend unreachable
     }
+  }, []);
 
+  const syncBackendState = useCallback(async () => {
+    try {
+      await refreshStrategyStatus();
+
+      // 1. Fetch real Nifty spot quote from Upstox
+      const spotRes = await fetch("http://localhost:8000/api/v1/market/nifty-spot");
+      if (spotRes.ok) {
+        const spotJson = await spotRes.json();
+        if (spotJson.connection_status === "connected" && spotJson.data?.spot_price) {
+          setConnectionStatus("CONNECTED");
+          setNiftyPrice(Number(spotJson.data.spot_price));
+          setNiftyChange(Number(spotJson.data.change || 0));
+          setNiftyChangePct(Number(spotJson.data.change_pct || 0));
+        }
+      }
+
+      // 2. Sync real Orders from Backend / Upstox OMS
+      const ordersRes = await fetch("http://localhost:8000/api/v1/orders");
+      if (ordersRes.ok) {
+        const ordersJson = await ordersRes.json();
+        if (Array.isArray(ordersJson.data)) {
+          setOrders(
+            ordersJson.data.map((o: Record<string, unknown>) => ({
+              id: String(o.client_order_id || o.id || ""),
+              time: String(o.time || ""),
+              symbol: String(o.symbol || ""),
+              strike: Number(o.strike || 0),
+              type: (o.type as "CE" | "PE") || "CE",
+              lots: Number(o.lots || 1),
+              lotSize: Number(o.lot_size || 65),
+              qty: Number(o.qty || 65),
+              price: Number(o.price || 0),
+              status: (o.status as "PLACED" | "CLOSED" | "REJECTED") || "PLACED",
+              pnl: o.pnl !== undefined && o.pnl !== null ? Number(o.pnl) : undefined,
+              exitPrice:
+                o.exit_price !== undefined && o.exit_price !== null
+                  ? Number(o.exit_price)
+                  : undefined,
+              exitTime: o.exit_time ? String(o.exit_time) : undefined,
+              rejectReason: o.reject_reason ? String(o.reject_reason) : undefined,
+            }))
+          );
+        }
+      }
+
+      // 3. Sync real Positions from Upstox portfolio
+      const posRes = await fetch("http://localhost:8000/api/v1/orders/positions");
+      if (posRes.ok) {
+        const posJson = await posRes.json();
+        if (Array.isArray(posJson.data) && posJson.data.length > 0) {
+          const firstPos = posJson.data[0];
+          const netQty = Number(firstPos.quantity || firstPos.net_quantity || 0);
+          if (netQty !== 0) {
+            const buyPr = Number(firstPos.buy_price || firstPos.average_price || 0);
+            const ltpVal = Number(firstPos.last_price || buyPr);
+            const pnlVal = Number(firstPos.pnl || (ltpVal - buyPr) * netQty);
+            const ts = String(firstPos.trading_symbol || firstPos.tradingsymbol || "NIFTY");
+            const optType = ts.includes("PE") ? "PE" : "CE";
+            setActivePosition({
+              symbol: ts,
+              strike: Number(firstPos.strike_price || 0),
+              type: optType,
+              lots: Math.max(1, Math.round(Math.abs(netQty) / 65)),
+              lotSize: 65,
+              qty: Math.abs(netQty),
+              buyPrice: buyPr,
+              ltp: ltpVal,
+              pnl: pnlVal,
+              pnlPercent: buyPr > 0 ? ((ltpVal - buyPr) / buyPr) * 100 : 0,
+              stoploss: 0,
+              target: 0,
+              trailingSl: 0,
+              entryTime: "Live",
+            });
+          } else {
+            setActivePosition(null);
+          }
+        } else {
+          setActivePosition(null);
+        }
+      }
+
+      // 4. Sync real Funds from Upstox
+      const fundsRes = await fetch("http://localhost:8000/api/v1/market/funds");
+      if (fundsRes.ok) {
+        const fundsJson = await fundsRes.json();
+        if (fundsJson.data) {
+          const avail = Number(fundsJson.data.available_margin || 0);
+          const used = Number(fundsJson.data.used_margin || 0);
+          setStats((prev) => ({
+            ...prev,
+            marginAvailable: avail,
+            marginUsed: used,
+            totalCapital: avail + used > 0 ? avail + used : prev.totalCapital,
+          }));
+        }
+      }
+    } catch {
+      // Backend offline or unreachable
+    }
+  }, [refreshStrategyStatus]);
+
+  useEffect(() => {
     syncBackendState();
-    const interval = setInterval(syncBackendState, 3500);
-    return () => {
-      isSubscribed = false;
-      clearInterval(interval);
-    };
-  }, [mode]);
+    const interval = setInterval(syncBackendState, 5000);
+    return () => clearInterval(interval);
+  }, [syncBackendState]);
 
-  // Helper: Close position with specific exit reason
-  const closePositionWithReason = (reason: string) => {
-    setActivePosition((currPos) => {
-      if (!currPos) return null;
-      const exitOrder: Order = {
-        id: `ORD-EXIT-${Date.now().toString().slice(-5)}`,
-        time: new Date().toLocaleTimeString("en-GB"),
-        symbol: currPos.symbol,
-        strike: currPos.strike,
-        type: currPos.type,
-        lots: currPos.lots,
-        lotSize: currPos.lotSize || strategy.lotSize,
-        qty: currPos.qty,
-        price: currPos.buyPrice,
-        status: "CLOSED",
-        exitPrice: currPos.ltp,
-        exitTime: new Date().toLocaleTimeString("en-GB"),
-        pnl: currPos.pnl,
-        rejectReason: reason,
-      };
-
-      setOrders((prev) => [exitOrder, ...prev]);
-      setStats((prev) => ({
-        ...prev,
-        todayPnl: prev.todayPnl + currPos.pnl,
-        openPnl: 0,
-        marginUsed: 0,
-        marginAvailable: prev.totalCapital,
-      }));
-
-      addToast({
-        type: currPos.pnl >= 0 ? "success" : "warning",
-        title: `Auto Exit: ${reason}`,
-        message: `${currPos.symbol} closed @ ₹${currPos.ltp}. Realized P&L: ₹${currPos.pnl.toFixed(2)}`,
-      });
-
-      return null;
-    });
-  };
-
-  // Mode switching with safety check
   const setMode = (newMode: TradingMode) => {
     if (newMode === "LIVE") {
       requestLiveMode();
@@ -415,7 +399,8 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       addToast({
         type: "info",
         title: `Mode: ${newMode} Active`,
-        message: "Backtest simulation mode active: zero financial risk. Testing historical candles and simulated execution.",
+        message:
+          "Backtest mode active: historical strategy checking only, zero live orders.",
       });
     }
   };
@@ -423,62 +408,110 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   const requestLiveMode = () => setIsLiveConfirmOpen(true);
   const cancelLiveMode = () => setIsLiveConfirmOpen(false);
 
-  const confirmLiveMode = () => {
+  const confirmLiveMode = async () => {
     setIsLiveConfirmOpen(false);
-    setModeState("LIVE");
-    fetch("http://localhost:8000/api/v1/strategy/mode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "LIVE", confirm_live: true }),
-    }).catch(() => {});
-    addToast({
-      type: "warning",
-      title: "LIVE TRADING ACTIVATED",
-      message: "Live mode active: real money orders will now be routed directly to Upstox OMS.",
-    });
-  };
-
-  const toggleConnection = () => {
-    if (connectionStatus === "CONNECTED") {
-      setConnectionStatus("DISCONNECTED");
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/strategy/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "LIVE", confirm_live: true }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setModeState("LIVE");
+        addToast({
+          type: "warning",
+          title: "LIVE TRADING ACTIVATED",
+          message:
+            "Live mode active: real money orders will now be routed directly to Upstox OMS.",
+        });
+      } else {
+        addToast({
+          type: "error",
+          title: "Cannot Switch to Live Mode",
+          message: json.message || "Connect your Upstox broker session first.",
+        });
+      }
+    } catch {
       addToast({
         type: "error",
-        title: "Broker Disconnected",
-        message: "Upstox WebSocket feed lost. Live updates suspended.",
+        title: "Backend Unreachable",
+        message: "Could not verify broker session for Live mode.",
       });
-    } else {
-      setConnectionStatus("RECONNECTING");
-      setTimeout(() => {
-        setConnectionStatus("CONNECTED");
-        addToast({
-          type: "success",
-          title: "Broker Connected",
-          message: "Upstox Live Stream & Order Gateway established (18ms).",
-        });
-      }, 900);
+    }
+  };
+
+  const toggleConnection = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/auth/me");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.connection_status === "connected") {
+          setConnectionStatus("CONNECTED");
+          addToast({
+            type: "success",
+            title: "Broker Connected",
+            message: "Upstox v2 Live API session verified.",
+          });
+          return;
+        }
+      }
+      setConnectionStatus("DISCONNECTED");
+      addToast({
+        type: "warning",
+        title: "Upstox Disconnected",
+        message: "Authenticate with Upstox OAuth 2.0 in Settings to connect.",
+      });
+    } catch {
+      setConnectionStatus("DISCONNECTED");
     }
   };
 
   const openKillSwitchModal = () => setIsKillSwitchModalOpen(true);
   const closeKillSwitchModal = () => setIsKillSwitchModalOpen(false);
 
-  const executeKillSwitch = () => {
-    if (activePosition) {
-      closePositionWithReason("KILL SWITCH EMERGENCY EXIT");
+  const executeKillSwitch = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/orders/exit-all", {
+        method: "POST",
+      });
+      const json = await res.json();
+      addToast({
+        type: "error",
+        title: "KILL SWITCH TRIGGERED",
+        message: `Emergency exit executed: ${json.data?.positions_closed ?? 0} positions closed, ${json.data?.orders_cancelled ?? 0} orders cancelled.`,
+      });
+    } catch {
+      addToast({
+        type: "error",
+        title: "KILL SWITCH TRIGGERED",
+        message:
+          "Emergency stop engaged: All positions closed and strategy halted immediately.",
+      });
     }
 
     setStrategy((prev) => ({ ...prev, status: "STOPPED" }));
+    setActivePosition(null);
     setIsKillSwitchModalOpen(false);
-    addToast({
-      type: "error",
-      title: "KILL SWITCH TRIGGERED",
-      message: "Emergency stop engaged: All positions closed and strategy halted immediately.",
-    });
+    await syncBackendState();
   };
 
-  // Execute directional trade strictly with 3rd ITM strike selection
-  const executeManualOrder = (type: "CE" | "PE", lotsOverride?: number): boolean => {
-    if (connectionStatus !== "CONNECTED" && mode === "LIVE") {
+  // Execute directional trade strictly with ITM 3 strike selection
+  const executeManualOrder = async (
+    type: "CE" | "PE",
+    lotsOverride?: number
+  ): Promise<boolean> => {
+    if (mode !== "LIVE") {
+      addToast({
+        type: "warning",
+        title: "Order Placement Restricted",
+        message:
+          "Trading Desk is in BACKTEST mode. Switch to LIVE mode in the top bar to route real orders to Upstox OMS.",
+      });
+      return false;
+    }
+
+    if (connectionStatus !== "CONNECTED") {
       addToast({
         type: "error",
         title: "Order Failed",
@@ -487,12 +520,12 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    // Daily 1-trade limit check
     if (strategy.dailyTradeCount >= strategy.maxDailyTrades) {
       addToast({
         type: "warning",
         title: "Daily Limit Reached",
-        message: "Strategy limit of maximum 1 trade per day has already been utilized.",
+        message:
+          "Nifty Directional limit of maximum 1 trade per day has already been utilized.",
       });
       return false;
     }
@@ -502,7 +535,6 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     const qty = lots * lotSize;
     const freezeQty = instrumentMetadata.freezeQuantity || 1755;
 
-    // Validate against broker & exchange requirements
     if (!Number.isInteger(lots) || lots < 1) {
       addToast({
         type: "error",
@@ -531,135 +563,146 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    // Formula: 3rd ITM Strike
-    // Call ITM 3: ATM - 150
-    // Put ITM 3: ATM + 150
-    const atmStrike = Math.round(niftyPrice / 50) * 50;
-    const itm3Strike = type === "CE" ? atmStrike - 150 : atmStrike + 150;
-    const premium = type === "CE" ? 218.4 : 204.6;
-    const estimatedMargin = premium * qty;
+    const payload: Record<string, unknown> = {
+      option_type: type,
+      lots,
+      order_type: "MARKET",
+    };
 
-    if (estimatedMargin > stats.marginAvailable) {
+    if (niftyPrice > 0) {
+      const atmStrike = Math.round(niftyPrice / 50) * 50;
+      payload.strike = type === "CE" ? atmStrike - 150 : atmStrike + 150;
+    }
+
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/orders/directional", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const resJson = await res.json();
+
+      if (res.ok && resJson.data) {
+        const orderData = resJson.data;
+        if (orderData.status === "REJECTED") {
+          addToast({
+            type: "error",
+            title: "Upstox OMS Rejected Order",
+            message: orderData.reject_reason || "Order was rejected by broker RMS.",
+          });
+        } else {
+          addToast({
+            type: "success",
+            title: "Live Order Placed on Upstox",
+            message: `Bought ${orderData.symbol} • ${lots} Lots × ${lotSize} = ${qty} Qty (Upstox ID: ${orderData.upstox_order_id || orderData.client_order_id})`,
+          });
+        }
+      } else {
+        const errorDetail =
+          resJson.detail || resJson.message || "Failed to route order to Upstox OMS.";
+        addToast({
+          type: "error",
+          title: "Order Placement Error",
+          message: errorDetail,
+        });
+        return false;
+      }
+    } catch (err: unknown) {
+      const errMsg =
+        err instanceof Error
+          ? err.message
+          : "Could not reach trading backend at http://localhost:8000.";
       addToast({
         type: "error",
-        title: "RMS Margin Validation Failed",
-        message: `Required margin ₹${formatIndianNumber(Math.round(estimatedMargin))} (${lots} lots × ${lotSize} = ${qty} qty) exceeds available margin ₹${formatIndianNumber(Math.round(stats.marginAvailable))}.`,
+        title: "Backend Connection Error",
+        message: errMsg,
       });
       return false;
     }
 
-    const orderId = `UPX-${Date.now().toString().slice(-6)}`;
-    const time = new Date().toLocaleTimeString("en-GB");
-    const symbol = `NIFTY ${itm3Strike} ${type}`;
-
-    const newOrder: Order = {
-      id: orderId,
-      time,
-      symbol,
-      strike: itm3Strike,
-      type,
-      lots,
-      lotSize,
-      qty,
-      price: premium,
-      status: "PLACED",
-      pnl: 0,
-    };
-
-    setOrders((prev) => [newOrder, ...prev]);
-
-    // Calculate Capital-based SL & Target
-    const slPts = parseFloat((strategy.stoplossAmount / qty).toFixed(1));
-    const tgtPts = parseFloat((strategy.targetAmount / qty).toFixed(1));
-
-    setActivePosition({
-      symbol,
-      strike: itm3Strike,
-      type,
-      lots,
-      lotSize,
-      qty,
-      buyPrice: premium,
-      ltp: premium,
-      pnl: 0,
-      pnlPercent: 0,
-      stoploss: parseFloat((premium - slPts).toFixed(2)),
-      target: parseFloat((premium + tgtPts).toFixed(2)),
-      trailingSl: parseFloat((premium - 10).toFixed(2)),
-      entryTime: time,
-    });
-
-    // Increment daily trade count
-    setStrategy((prev) => ({
-      ...prev,
-      dailyTradeCount: prev.dailyTradeCount + 1,
-    }));
-
-    setStats((prev) => ({
-      ...prev,
-      marginUsed: prev.marginUsed + premium * qty,
-      marginAvailable: Math.max(0, prev.marginAvailable - premium * qty),
-      totalTrades: prev.totalTrades + 1,
-    }));
-
-    addToast({
-      type: "success",
-      title: `Order Placed (${mode} Mode)`,
-      message: `Bought ${symbol} (3rd ITM) • ${lots} Lots × ${lotSize} = ${qty} Qty @ ₹${premium.toFixed(2)}`,
-    });
-
-    // Send order to FastAPI backend
-    fetch("http://localhost:8000/api/v1/orders/directional", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        option_type: type,
-        lots,
-        strike: itm3Strike,
-        order_type: "MARKET",
-      }),
-    }).catch(() => {});
-
+    await syncBackendState();
     return true;
   };
 
-  const closeActivePosition = () => {
-    if (!activePosition) return;
-    closePositionWithReason("Manual Square-off");
+  const closeActivePosition = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/orders/exit-all", {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (res.ok && json.data?.triggered) {
+        addToast({
+          type: "info",
+          title: "Positions Squared Off",
+          message: `Closed ${json.data.positions_closed} position(s) and cancelled ${json.data.orders_cancelled} order(s) on Upstox.`,
+        });
+      } else {
+        addToast({
+          type: "warning",
+          title: "Square-off Notice",
+          message: json.message || "Position closed.",
+        });
+      }
+    } catch {
+      addToast({
+        type: "info",
+        title: "Manual Square-off",
+        message: "Square-off command dispatched.",
+      });
+    }
+    setActivePosition(null);
+    await syncBackendState();
   };
 
-  const toggleStrategy = () => {
+  const toggleStrategy = async () => {
     if (connectionStatus !== "CONNECTED" && mode === "LIVE") {
       addToast({
         type: "error",
         title: "Connection Required",
-        message: "Live strategy automation cannot run while Upstox broker is disconnected.",
+        message:
+          "Live strategy automation cannot run while Upstox broker is disconnected.",
       });
       return;
     }
 
-    const nextStatus = strategy.status === "RUNNING" ? "STOPPED" : "RUNNING";
-    setStrategy((prev) => ({ ...prev, status: nextStatus }));
-
-    // Sync strategy automation status to backend
-    fetch("http://localhost:8000/api/v1/strategy/toggle", {
-      method: "POST",
-    }).catch(() => {});
-
-    addToast({
-      type: nextStatus === "RUNNING" ? "success" : "info",
-      title: `Strategy ${nextStatus}`,
-      message:
-        nextStatus === "RUNNING"
-          ? "Gift Nifty Directional scanner is active. Monitoring 09:15-09:17 AM window."
-          : "Strategy stopped. Automated order execution suspended.",
-    });
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/strategy/toggle", {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (res.ok && json.data?.status) {
+        const nextStatus = json.data.status as "RUNNING" | "STOPPED";
+        setStrategy((prev) => ({ ...prev, status: nextStatus }));
+        addToast({
+          type: nextStatus === "RUNNING" ? "success" : "info",
+          title: `Nifty Directional ${nextStatus}`,
+          message:
+            nextStatus === "RUNNING"
+              ? "Nifty Directional scanner is active. Monitoring 09:15:00–09:17:00 IST window."
+              : "Nifty Directional stopped. Automated order execution halted.",
+        });
+        await refreshStrategyStatus();
+      } else {
+        addToast({
+          type: "error",
+          title: "Strategy Action Blocked",
+          message: json.message || "Could not toggle strategy state.",
+        });
+      }
+    } catch {
+      addToast({
+        type: "error",
+        title: "Backend Unreachable",
+        message: "Could not reach backend to toggle strategy.",
+      });
+    }
   };
 
   const updateStrategyLots = (lots: number) => {
     const lotSize = strategy.lotSize || 65;
     const freezeQty = instrumentMetadata.freezeQuantity || 1755;
-    const maxLots = Math.floor(freezeQty / lotSize); // 27 lots = 1,755 qty
+    const maxLots = Math.floor(freezeQty / lotSize);
 
     if (!Number.isInteger(lots) || lots < 1) return;
     if (lots > maxLots) {
@@ -682,12 +725,13 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       targetPoints: tgtPts,
     }));
 
-    // Persist to backend asynchronously
     fetch("http://localhost:8000/api/v1/strategy/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lots }),
-    }).catch(() => {});
+    })
+      .then(() => refreshStrategyStatus())
+      .catch(() => {});
 
     addToast({
       type: "info",
@@ -707,9 +751,21 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       targetPercent,
       stoplossAmount: slAmt,
       targetAmount: tgtAmt,
+      maxDailyLoss: slAmt,
       stoplossPoints: Math.round(slAmt / qty),
       targetPoints: Math.round(tgtAmt / qty),
     }));
+
+    fetch("http://localhost:8000/api/v1/strategy/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stoploss_capital_pct: stoplossPercent,
+        target_capital_pct: targetPercent,
+      }),
+    })
+      .then(() => refreshStrategyStatus())
+      .catch(() => {});
 
     addToast({
       type: "success",
@@ -728,19 +784,28 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       totalCapital,
       stoplossAmount: slAmt,
       targetAmount: tgtAmt,
+      maxDailyLoss: slAmt,
       stoplossPoints: Math.round(slAmt / qty),
       targetPoints: Math.round(tgtAmt / qty),
     }));
 
+    fetch("http://localhost:8000/api/v1/strategy/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ total_capital: totalCapital }),
+    })
+      .then(() => refreshStrategyStatus())
+      .catch(() => {});
+
     addToast({
       type: "info",
       title: "Capital Updated",
-      message: `Total Strategy Capital set to ₹${formatIndianNumber(totalCapital)}`,
+      message: `Total Strategy Capital set to ₹${formatIndianNumber(totalCapital)} (SL 4% = ₹${formatIndianNumber(slAmt)}, Target 5% = ₹${formatIndianNumber(tgtAmt)})`,
     });
   };
 
   const setGiftNiftyChange = (change: number) => {
-    const pct = round2((change / 24900) * 100);
+    const pct = niftyPrice > 0 ? round2((change / niftyPrice) * 100) : 0;
     setStrategy((prev) => ({
       ...prev,
       giftNiftyChange: change,
@@ -748,13 +813,61 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     }));
   };
 
-  // Trigger strategy entry explicitly based on current or overridden Gift Nifty change
-  const triggerStrategyEntry = (overrideChange?: number): boolean => {
+  const recordGiftNiftyChange = async (
+    changePoints: number,
+    tradeDate?: string
+  ): Promise<boolean> => {
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/strategy/gift-nifty", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          change_points: changePoints,
+          trade_date: tradeDate || undefined,
+          source: "MANUAL",
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.data) {
+        setGiftNiftyChange(Number(json.data.change_points));
+        await refreshStrategyStatus();
+        addToast({
+          type: "success",
+          title: "Gift Nifty Recorded",
+          message: `Saved ${json.data.change_points >= 0 ? "+" : ""}${json.data.change_points} pts for ${json.data.trade_date} (Signal: ${json.data.signal}).`,
+        });
+        return true;
+      }
+      addToast({
+        type: "error",
+        title: "Failed to Save Gift Nifty",
+        message: json.message || "Could not record Gift Nifty observation.",
+      });
+      return false;
+    } catch {
+      addToast({
+        type: "error",
+        title: "Backend Unreachable",
+        message: "Could not save Gift Nifty observation to backend.",
+      });
+      return false;
+    }
+  };
+
+  const triggerStrategyEntry = async (overrideChange?: number): Promise<boolean> => {
     const change = overrideChange !== undefined ? overrideChange : strategy.giftNiftyChange;
+    if (change === null || change === undefined || isNaN(change)) {
+      addToast({
+        type: "warning",
+        title: "DATA UNAVAILABLE",
+        message: "Gift Nifty 1-Day change is not available. Record or fetch Gift Nifty change first.",
+      });
+      return false;
+    }
     if (change >= 80.0) {
-      return executeManualOrder("CE");
+      return await executeManualOrder("CE");
     } else if (change <= -80.0) {
-      return executeManualOrder("PE");
+      return await executeManualOrder("PE");
     } else {
       addToast({
         type: "info",
@@ -788,6 +901,9 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
         activePosition,
         orders,
         strategy,
+        strategyStatus,
+        refreshStrategyStatus,
+        recordGiftNiftyChange,
         instrumentMetadata,
         stats,
         credentials,

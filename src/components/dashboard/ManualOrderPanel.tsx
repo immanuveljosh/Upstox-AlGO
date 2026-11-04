@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useTrading } from "@/context/TradingContext";
-import { formatINR, formatINRInteger, formatIndianNumber } from "@/lib/utils";
+import { formatINRInteger, formatIndianNumber } from "@/lib/utils";
 import {
   ArrowUpRight,
   ArrowDownRight,
@@ -21,42 +21,36 @@ export function ManualOrderPanel() {
     connectionStatus,
     strategy,
     instrumentMetadata,
-    stats,
     mode,
   } = useTrading();
-  const [selectedLots, setSelectedLots] = useState<number>(strategy.lots || 2);
+  const [selectedLots, setSelectedLots] = useState<number>(strategy.lots || 1);
 
   useEffect(() => {
-    setSelectedLots(strategy.lots || 2);
+    setSelectedLots(strategy.lots || 1);
   }, [strategy.lots]);
 
   const isConnected = connectionStatus === "CONNECTED";
+  const hasSpot = niftyPrice > 0;
 
   // Actual exchange lot size from Upstox instrument metadata (65 units per lot for NIFTY)
   const actualLotSize = strategy.lotSize || instrumentMetadata.lotSize || 65;
   const freezeQty = instrumentMetadata.freezeQuantity || 1755;
   const maxLots = Math.floor(freezeQty / actualLotSize); // 27 lots = 1,755 qty
 
-  // Nifty ATM & 3rd ITM Strike Selection
-  const atmStrike = Math.round(niftyPrice / 50) * 50;
-  const itm3CallStrike = atmStrike - 150;
-  const itm3PutStrike = atmStrike + 150;
-
-  const estimatedCallPremium = 218.4;
-  const estimatedPutPremium = 204.6;
+  // Nifty ATM & ITM 3 Strike Selection (dynamic from spot / option chain)
+  const atmStrike = hasSpot ? Math.round(niftyPrice / 50) * 50 : null;
+  const itm3CallStrike = atmStrike ? atmStrike - 150 : null;
+  const itm3PutStrike = atmStrike ? atmStrike + 150 : null;
 
   // Automatic calculation: Total Quantity = Number of Lots × Actual Lot Size
   const totalQty = selectedLots * actualLotSize;
-  const estCallMargin = estimatedCallPremium * totalQty;
-  const estPutMargin = estimatedPutPremium * totalQty;
 
   // Broker & Exchange Quantity Validation
   const isValidLots = Number.isInteger(selectedLots) && selectedLots >= 1;
   const isMultipleOfLotSize = totalQty > 0 && totalQty % actualLotSize === 0;
   const isWithinFreezeLimit = totalQty <= freezeQty;
-  const isWithinMargin = Math.max(estCallMargin, estPutMargin) <= stats.marginAvailable;
   const isQuantityValid =
-    isValidLots && isMultipleOfLotSize && isWithinFreezeLimit && isWithinMargin;
+    isValidLots && isMultipleOfLotSize && isWithinFreezeLimit;
 
   const handleLotsChange = (nextLots: number) => {
     if (isNaN(nextLots)) return;
@@ -75,10 +69,14 @@ export function ManualOrderPanel() {
           <div>
             <h3 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
               <Zap className="w-4 h-4 text-emerald-400" />
-              <span>Directional Execution (3rd ITM Only)</span>
+              <span>Nifty Directional Execution (ITM 3)</span>
             </h3>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              NIFTY 50 Lot Size: <strong className="text-emerald-400 font-mono">{actualLotSize} units/lot</strong> &bull; [{mode} Mode]
+              NIFTY Lot Size:{" "}
+              <strong className="text-emerald-400 font-mono">
+                {actualLotSize} units/lot
+              </strong>{" "}
+              &bull; [{mode} Mode]
             </p>
           </div>
 
@@ -87,7 +85,9 @@ export function ManualOrderPanel() {
               Nifty Spot / ATM
             </span>
             <div className="text-sm font-bold font-mono text-cyan-400">
-              {isConnected ? `${niftyPrice.toFixed(1)} / ${atmStrike}` : "—"}
+              {isConnected && hasSpot
+                ? `${niftyPrice.toFixed(1)} / ${atmStrike}`
+                : "DATA UNAVAILABLE"}
             </div>
           </div>
         </div>
@@ -99,7 +99,8 @@ export function ManualOrderPanel() {
               Number of Lots &times; Lot Size ({actualLotSize})
             </span>
             <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded">
-              {selectedLots} {selectedLots === 1 ? "Lot" : "Lots"} &times; {actualLotSize} = {totalQty} Qty
+              {selectedLots} {selectedLots === 1 ? "Lot" : "Lots"} &times;{" "}
+              {actualLotSize} = {totalQty} Qty
             </span>
           </div>
 
@@ -156,25 +157,27 @@ export function ManualOrderPanel() {
             {isQuantityValid ? (
               <span className="text-emerald-400 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
-                Total Order Qty: <strong>{totalQty} units</strong> (Valid ≤ {formatIndianNumber(freezeQty)})
+                Total Order Qty: <strong>{totalQty} units</strong> (Valid &le;{" "}
+                {formatIndianNumber(freezeQty)})
               </span>
             ) : (
               <span className="text-amber-400 flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
-                {!isWithinFreezeLimit
-                  ? `Exceeds freeze limit (${freezeQty} qty)`
-                  : "Margin exceeds available capital"}
+                Exceeds freeze limit ({freezeQty} qty)
               </span>
             )}
             <span suppressHydrationWarning className="text-slate-400">
-              SL: {formatINRInteger(strategy.stoplossAmount)} &bull; Tgt: {formatINRInteger(strategy.targetAmount)}
+              SL ({strategy.stoplossPercent}%):{" "}
+              {formatINRInteger(strategy.stoplossAmount)} &bull; Tgt (
+              {strategy.targetPercent}%):{" "}
+              {formatINRInteger(strategy.targetAmount)}
             </span>
           </div>
         </div>
 
-        {/* 1-Click Buy Buttons: 3rd ITM Call vs 3rd ITM Put */}
+        {/* 1-Click Buy Buttons: ITM 3 Call vs ITM 3 Put */}
         <div className="mt-3.5 grid grid-cols-2 gap-3">
-          {/* 3rd ITM Call (Bullish) */}
+          {/* ITM 3 Call (Bullish) */}
           <button
             type="button"
             onClick={() => handleBuy("CE")}
@@ -193,28 +196,29 @@ export function ManualOrderPanel() {
           >
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-mono font-bold text-emerald-400 uppercase tracking-wider">
-                BUY 3rd ITM CALL
+                BUY ITM 3 CALL
               </span>
               <ArrowUpRight className="w-4 h-4 text-emerald-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </div>
 
             <div className="mt-1.5">
               <div className="text-base font-bold font-mono text-white">
-                NIFTY {itm3CallStrike} CE
+                {itm3CallStrike
+                  ? `NIFTY ${itm3CallStrike} CE`
+                  : "NIFTY ITM 3 CE"}
               </div>
               <div className="text-[10px] font-mono text-emerald-300/90 mt-0.5">
-                Order Qty: <strong>{totalQty} Qty</strong> ({selectedLots} &times; {actualLotSize})
+                Order Qty: <strong>{totalQty} Qty</strong> ({selectedLots}{" "}
+                &times; {actualLotSize})
               </div>
-              <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
-                <span>LTP: ~₹{estimatedCallPremium.toFixed(1)}</span>
-                <span className="font-mono text-emerald-400 font-semibold">
-                  {formatINR(estCallMargin)}
-                </span>
+              <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between font-mono">
+                <span>Signal: &ge; +80 pts</span>
+                <span className="text-emerald-400 font-semibold">MARKET</span>
               </div>
             </div>
           </button>
 
-          {/* 3rd ITM Put (Bearish) */}
+          {/* ITM 3 Put (Bearish) */}
           <button
             type="button"
             onClick={() => handleBuy("PE")}
@@ -233,23 +237,22 @@ export function ManualOrderPanel() {
           >
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-mono font-bold text-rose-400 uppercase tracking-wider">
-                BUY 3rd ITM PUT
+                BUY ITM 3 PUT
               </span>
               <ArrowDownRight className="w-4 h-4 text-rose-400 group-hover:translate-x-0.5 group-hover:translate-y-0.5 transition-transform" />
             </div>
 
             <div className="mt-1.5">
               <div className="text-base font-bold font-mono text-white">
-                NIFTY {itm3PutStrike} PE
+                {itm3PutStrike ? `NIFTY ${itm3PutStrike} PE` : "NIFTY ITM 3 PE"}
               </div>
               <div className="text-[10px] font-mono text-rose-300/90 mt-0.5">
-                Order Qty: <strong>{totalQty} Qty</strong> ({selectedLots} &times; {actualLotSize})
+                Order Qty: <strong>{totalQty} Qty</strong> ({selectedLots}{" "}
+                &times; {actualLotSize})
               </div>
-              <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between">
-                <span>LTP: ~₹{estimatedPutPremium.toFixed(1)}</span>
-                <span className="font-mono text-rose-400 font-semibold">
-                  {formatINR(estPutMargin)}
-                </span>
+              <div className="text-[11px] text-slate-400 mt-1 flex items-center justify-between font-mono">
+                <span>Signal: &le; -80 pts</span>
+                <span className="text-rose-400 font-semibold">MARKET</span>
               </div>
             </div>
           </button>
@@ -260,10 +263,11 @@ export function ManualOrderPanel() {
         <div className="flex items-center gap-1.5">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
           <span>
-            Product: <strong>MIS</strong> &bull; 1 Lot = <strong>{actualLotSize} Qty</strong>
+            Window: <strong>09:15–09:17 IST</strong> &bull; 1 Lot ={" "}
+            <strong>{actualLotSize} Qty</strong>
           </span>
         </div>
-        <span>Max 1 Trade/Day Limit Enforced</span>
+        <span>Max 1 Trade/Day</span>
       </div>
     </div>
   );

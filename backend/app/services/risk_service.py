@@ -11,7 +11,7 @@ from backend.app.core.logging import logger, log_critical_action
 
 
 class RiskService:
-    """Risk management engine, 5% SL / 6% Target capital rules, and Kill Switch executor."""
+    """Risk management engine, 4% SL / 5% Target capital rules, and Kill Switch executor."""
 
     async def execute_kill_switch(self, db: AsyncSession) -> Dict[str, Any]:
         """

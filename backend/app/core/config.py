@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     UPSTOX_API_SECRET: str = ""
     UPSTOX_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/callback"
     UPSTOX_BASE_URL: str = "https://api.upstox.com/v2"
-    FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_URL: str = "http://localhost:3005"
 
     # Security & Tokens
     JWT_SECRET_KEY: str = "upstox_super_secure_secret_key_change_in_production_2026"

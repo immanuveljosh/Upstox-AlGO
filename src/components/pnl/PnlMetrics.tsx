@@ -3,46 +3,49 @@
 import React from "react";
 import { PnlSummary } from "@/types/trading";
 import { formatINR } from "@/lib/utils";
-import {
-  TrendingUp,
-  Percent,
-  AlertTriangle,
-  Scale,
-  Award,
-  Layers,
-} from "lucide-react";
+import { TrendingUp, Percent, AlertTriangle, Scale } from "lucide-react";
 
 interface PnlMetricsProps {
-  summary: PnlSummary;
+  summary?: Partial<PnlSummary> | null;
 }
 
 export function PnlMetrics({ summary }: PnlMetricsProps) {
+  const netPnl = Number(summary?.netPnl ?? 0);
+  const grossPnl = Number(summary?.grossPnl ?? 0);
+  const winRate = Number(summary?.winRate ?? 0);
+  const profitTrades = Number(summary?.profitTrades ?? 0);
+  const lossTrades = Number(summary?.lossTrades ?? 0);
+  const maxDrawdown = Number(summary?.maxDrawdown ?? 0);
+  const maxDrawdownPct = Number(summary?.maxDrawdownPct ?? 0);
+  const profitFactor = Number(summary?.profitFactor ?? 0);
+  const avgWin = Number(summary?.avgWin ?? 0);
+
   const metrics = [
     {
       label: "Net Realized P&L",
-      value: formatINR(summary.netPnl, true),
-      subtext: `Gross: ${formatINR(summary.grossPnl)}`,
-      color: summary.netPnl >= 0 ? "text-emerald-400" : "text-rose-400",
+      value: formatINR(netPnl, true),
+      subtext: `Gross: ${formatINR(grossPnl)}`,
+      color: netPnl >= 0 ? "text-emerald-400" : "text-rose-400",
       icon: TrendingUp,
     },
     {
       label: "Win Rate",
-      value: `${summary.winRate}%`,
-      subtext: `${summary.profitTrades}W / ${summary.lossTrades}L`,
+      value: `${winRate.toFixed(1)}%`,
+      subtext: `${profitTrades}W / ${lossTrades}L`,
       color: "text-cyan-400",
       icon: Percent,
     },
     {
       label: "Max Drawdown",
-      value: formatINR(summary.maxDrawdown),
-      subtext: `${summary.maxDrawdownPct}% of peak equity`,
+      value: formatINR(maxDrawdown),
+      subtext: `${maxDrawdownPct.toFixed(1)}% of peak equity`,
       color: "text-rose-400",
       icon: AlertTriangle,
     },
     {
       label: "Profit Factor",
-      value: `${summary.profitFactor}x`,
-      subtext: `Avg Win: ${formatINR(summary.avgWin)}`,
+      value: `${profitFactor.toFixed(2)}x`,
+      subtext: `Avg Win: ${formatINR(avgWin)}`,
       color: "text-amber-400",
       icon: Scale,
     },
@@ -64,7 +67,9 @@ export function PnlMetrics({ summary }: PnlMetricsProps) {
               <Icon className="w-4 h-4 text-slate-500" />
             </div>
 
-            <div className={`text-xl md:text-2xl font-bold font-mono tracking-tight tabular-nums ${item.color}`}>
+            <div
+              className={`text-xl md:text-2xl font-bold font-mono tracking-tight tabular-nums ${item.color}`}
+            >
               {item.value}
             </div>
 
@@ -77,4 +82,3 @@ export function PnlMetrics({ summary }: PnlMetricsProps) {
     </div>
   );
 }
-

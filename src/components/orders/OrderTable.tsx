@@ -2,48 +2,37 @@
 
 import React, { useState } from "react";
 import { useTrading } from "@/context/TradingContext";
-import { OrderStatus } from "@/types/trading";
+import { Order, OrderStatus } from "@/types/trading";
 import { formatINR } from "@/lib/utils";
-import { DisconnectedNotice } from "@/components/ui/DisconnectedNotice";
 import {
   Search,
-  Filter,
   CheckCircle2,
   Clock,
   AlertTriangle,
-  ArrowUpRight,
-  ArrowDownRight,
-  Download,
 } from "lucide-react";
 
 export function OrderTable() {
-  const { orders, connectionStatus } = useTrading();
+  const { orders } = useTrading();
   const [activeTab, setActiveTab] = useState<OrderStatus | "ALL">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const isConnected = connectionStatus === "CONNECTED";
+  const safeOrders: Order[] = Array.isArray(orders) ? orders : [];
 
-  if (!isConnected) {
-    return (
-      <div className="rounded-xl bg-slate-900 border border-slate-800 p-6">
-        <DisconnectedNotice moduleName="Orders Log & Executions" />
-      </div>
-    );
-  }
-
-  const filteredOrders = orders.filter((order) => {
+  const filteredOrders = safeOrders.filter((order) => {
+    if (!order || typeof order !== "object") return false;
     const matchesTab = activeTab === "ALL" ? true : order.status === activeTab;
-    const matchesSearch =
-      order.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.id.toLowerCase().includes(searchQuery.toLowerCase());
+    const symbolText = String(order.symbol || "").toLowerCase();
+    const idText = String(order.id || "").toLowerCase();
+    const query = searchQuery.toLowerCase();
+    const matchesSearch = symbolText.includes(query) || idText.includes(query);
     return matchesTab && matchesSearch;
   });
 
   const counts = {
-    ALL: orders.length,
-    PLACED: orders.filter((o) => o.status === "PLACED").length,
-    CLOSED: orders.filter((o) => o.status === "CLOSED").length,
-    REJECTED: orders.filter((o) => o.status === "REJECTED").length,
+    ALL: safeOrders.length,
+    PLACED: safeOrders.filter((o) => o?.status === "PLACED").length,
+    CLOSED: safeOrders.filter((o) => o?.status === "CLOSED").length,
+    REJECTED: safeOrders.filter((o) => o?.status === "REJECTED").length,
   };
 
   return (
@@ -114,19 +103,27 @@ export function OrderTable() {
               <th className="py-3 px-4 text-right">Total Qty</th>
               <th className="py-3 px-4 text-right">Price</th>
               <th className="py-3 px-4 text-center">Status</th>
-              <th className="py-3 px-4 text-right">P&L</th>
+              <th className="py-3 px-4 text-right">P&amp;L</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/80 text-xs">
             {filteredOrders.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-slate-500">
+                <td colSpan={9} className="py-8 text-center text-slate-500">
                   No orders found in this view.
                 </td>
               </tr>
             ) : (
-              filteredOrders.map((order) => {
+              filteredOrders.map((order, idx) => {
                 const isCall = order.type === "CE";
+                const safePrice = Number(order.price ?? 0);
+                const safeLots = Number(order.lots ?? 1);
+                const safeQty = Number(order.qty ?? 65);
+                const safeLotSize =
+                  order.lotSize ||
+                  Math.round(safeQty / Math.max(1, safeLots)) ||
+                  65;
+
                 let statusBadge = (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20">
                     <Clock className="w-3 h-3" />
@@ -152,20 +149,20 @@ export function OrderTable() {
 
                 return (
                   <tr
-                    key={order.id}
+                    key={order.id || `order-${idx}`}
                     className="hover:bg-slate-800/40 transition-colors group"
                   >
                     <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px]">
-                      {order.time}
+                      {order.time || "—"}
                     </td>
 
                     <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px]">
-                      {order.id}
+                      {order.id || "—"}
                     </td>
 
                     <td className="py-3.5 px-4">
                       <span className="font-mono font-bold text-slate-100">
-                        {order.symbol}
+                        {order.symbol || "—"}
                       </span>
                     </td>
 
@@ -182,23 +179,25 @@ export function OrderTable() {
                     </td>
 
                     <td className="py-3.5 px-4 text-right font-mono text-slate-300">
-                      {order.lots} {order.lots === 1 ? "Lot" : "Lots"} &times;{" "}
-                      <span className="text-emerald-400">
-                        {order.lotSize || Math.round(order.qty / Math.max(1, order.lots)) || 65}
-                      </span>
+                      {safeLots} {safeLots === 1 ? "Lot" : "Lots"} &times;{" "}
+                      <span className="text-emerald-400">{safeLotSize}</span>
                     </td>
 
                     <td className="py-3.5 px-4 text-right font-mono font-bold text-white">
-                      {order.qty} <span className="text-[10px] font-normal text-slate-400">Qty</span>
+                      {safeQty}{" "}
+                      <span className="text-[10px] font-normal text-slate-400">
+                        Qty
+                      </span>
                     </td>
 
                     <td className="py-3.5 px-4 text-right font-mono text-slate-200">
-                      ₹{order.price.toFixed(2)}
-                      {order.exitPrice && (
-                        <div className="text-[10px] text-slate-500">
-                          Exit: ₹{order.exitPrice.toFixed(2)}
-                        </div>
-                      )}
+                      ₹{safePrice.toFixed(2)}
+                      {order.exitPrice !== undefined &&
+                        order.exitPrice !== null && (
+                          <div className="text-[10px] text-slate-500">
+                            Exit: ₹{Number(order.exitPrice).toFixed(2)}
+                          </div>
+                        )}
                     </td>
 
                     <td className="py-3.5 px-4 text-center">
@@ -211,10 +210,14 @@ export function OrderTable() {
                     </td>
 
                     <td className="py-3.5 px-4 text-right font-mono font-bold">
-                      {order.pnl !== undefined && order.status !== "REJECTED" ? (
+                      {order.pnl !== undefined &&
+                      order.pnl !== null &&
+                      order.status !== "REJECTED" ? (
                         <span
                           className={
-                            order.pnl >= 0 ? "text-emerald-400" : "text-rose-400"
+                            order.pnl >= 0
+                              ? "text-emerald-400"
+                              : "text-rose-400"
                           }
                         >
                           {formatINR(order.pnl, true)}
@@ -233,4 +236,3 @@ export function OrderTable() {
     </div>
   );
 }
-

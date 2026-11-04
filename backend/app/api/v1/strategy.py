@@ -1,5 +1,6 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Path, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.database import get_db
 from backend.app.services.strategy_service import strategy_service
@@ -7,35 +8,77 @@ from backend.app.schemas.common import APIResponse
 from backend.app.schemas.strategy import (
     StrategyConfigData,
     StrategySettingsUpdate,
+    GiftNiftyObservationRequest,
+    GiftNiftyCsvImportRequest,
     SignalEvaluationResult,
     ModeSwitchRequest,
     InstrumentMetadata,
     QuantityCalculationRequest,
     QuantityCalculationResponse,
+    BacktestRequest,
 )
 
-router = APIRouter(prefix="/strategy", tags=["Strategy & Mode"])
+router = APIRouter(prefix="/strategy", tags=["Strategy & Backtest"])
 
 
 @router.get("", response_model=APIResponse[StrategyConfigData])
 @router.get("/config", response_model=APIResponse[StrategyConfigData])
 async def get_strategy(db: AsyncSession = Depends(get_db)):
-    """Fetch default 'Gift Nifty Directional' strategy configuration and running status."""
+    """Fetch default 'Nifty Directional' strategy configuration and running status."""
     return await strategy_service.get_strategy_config(db)
+
+
+@router.get("/status", response_model=APIResponse[dict])
+async def get_strategy_status(db: AsyncSession = Depends(get_db)):
+    """Fetch live 'Nifty Directional' strategy overview, Gift Nifty signal, window status, and today's trade status."""
+    return await strategy_service.get_live_status(db)
+
+
+@router.post("/gift-nifty", response_model=APIResponse[dict])
+async def record_gift_nifty_observation(
+    payload: GiftNiftyObservationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Record an actual Gift Nifty 1-Day change observation in points."""
+    return await strategy_service.record_gift_nifty_observation(
+        db=db,
+        change_points=payload.change_points,
+        trade_date=payload.trade_date,
+        prev_close=payload.prev_close,
+        current_value=payload.current_value,
+        observed_at=payload.observed_at,
+        source="MANUAL",
+    )
+
+
+@router.post("/gift-nifty/import", response_model=APIResponse[dict])
+async def import_gift_nifty_csv(
+    payload: GiftNiftyCsvImportRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Import historical Gift Nifty 1-Day change observations from CSV."""
+    return await strategy_service.import_gift_nifty_csv(db=db, csv_text=payload.csv)
+
+
+@router.get("/gift-nifty/history", response_model=APIResponse[dict])
+async def get_gift_nifty_history(
+    from_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    to_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    db: AsyncSession = Depends(get_db),
+):
+    """List recorded Gift Nifty 1-Day change observations."""
+    return await strategy_service.list_gift_nifty_history(db=db, from_date=from_date, to_date=to_date)
 
 
 @router.get("/instrument-metadata", response_model=APIResponse[InstrumentMetadata])
 async def get_instrument_metadata(
-    strike: Optional[int] = Query(None, description="Option strike price (e.g. 24750)"),
+    strike: Optional[int] = Query(None, description="Option strike price"),
     option_type: str = Query("CE", description="Option type: CE or PE"),
     expiry_date: Optional[str] = Query(None, description="Contract expiry date YYYY-MM-DD"),
-    spot_price: float = Query(24878.5, description="Current Nifty 50 spot price"),
+    spot_price: Optional[float] = Query(None, description="Current Nifty 50 spot price"),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Fetch actual lot size and contract metadata from Upstox option contracts API.
-    For current NIFTY contracts, lot_size = 65 units per lot, freeze_quantity = 1755 (27 lots).
-    """
+    """Fetch actual lot size and contract metadata from Upstox option contracts API."""
     meta = await strategy_service.fetch_instrument_metadata(
         db=db,
         strike=strike,
@@ -55,10 +98,7 @@ async def calculate_quantity(
     payload: QuantityCalculationRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Calculate Total Quantity = Number of Lots × Actual Lot Size and validate against
-    broker and exchange requirements (lot multiple, freeze limit, capital margin).
-    """
+    """Calculate Total Quantity = Number of Lots × Actual Lot Size and validate against exchange rules."""
     meta = await strategy_service.fetch_instrument_metadata(
         db=db,
         strike=payload.strike,
@@ -77,12 +117,13 @@ async def calculate_quantity(
         freeze_quantity=freeze_qty,
         option_premium=payload.option_premium,
         available_capital=available_cap,
+        raw_quantity=payload.raw_quantity,
     )
-    strike_val = int(meta.get("strike_price") or payload.strike or 24750)
+    strike_val = int(meta.get("strike_price") or payload.strike or 0)
     calc["instrument"] = payload.instrument or "NIFTY"
     calc["trading_symbol"] = meta.get("trading_symbol", f"NIFTY {strike_val} {payload.option_type}")
-    calc["instrument_key"] = meta.get("instrument_key", "NSE_FO|40013")
-    calc["expiry"] = meta.get("expiry", "2026-11-09")
+    calc["instrument_key"] = meta.get("instrument_key", "")
+    calc["expiry"] = meta.get("expiry", "")
     calc["option_type"] = payload.option_type
     calc["strike"] = strike_val
     calc["metadata_source"] = meta.get("source", "UPSTOX_API")
@@ -96,7 +137,7 @@ async def calculate_quantity(
 
 @router.post("/start", response_model=APIResponse[dict])
 async def start_strategy(db: AsyncSession = Depends(get_db)):
-    """Start automated Gift Nifty directional scanner. Requires active broker connection."""
+    """Start automated Nifty Directional scanner."""
     return await strategy_service.start_strategy(db)
 
 
@@ -120,9 +161,9 @@ async def update_strategy_settings(
 ):
     """
     Update configurable strategy parameters:
-    - Lot size (multiplier)
-    - Stop Loss % of capital (default 5%)
-    - Target % of capital (default 6%)
+    - Lot size multiplier (lots)
+    - Stop Loss % of capital (default 4%)
+    - Target % of capital (default 5%)
     - Total Capital
     """
     return await strategy_service.update_settings(
@@ -134,37 +175,16 @@ async def update_strategy_settings(
     )
 
 
-@router.post("/scan", response_model=APIResponse[dict])
-async def scan_strategy(
-    gift_nifty_change: Optional[float] = Query(None, description="Optional Gift Nifty change override"),
-    spot_price: Optional[float] = Query(None, description="Optional Nifty spot price override"),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Run one cycle of the automated Gift Nifty strategy scanner:
-    - Reconciles active positions against 5% Capital SL and 6% Capital Target.
-    - If in 09:15-09:17 AM window and threshold is reached, executes directional trade.
-    """
-    return await strategy_service.run_monitoring_tick(
-        db=db,
-        override_change=gift_nifty_change,
-        override_spot=spot_price,
-    )
-
-
 @router.post("/evaluate", response_model=APIResponse[SignalEvaluationResult])
 async def evaluate_signal(
-    gift_nifty_change: Optional[float] = Query(None, description="Override 1-Day Gift Nifty points change"),
+    gift_nifty_change: Optional[float] = Query(None, description="Gift Nifty 1-Day points change"),
+    spot_price: Optional[float] = Query(None, description="NIFTY spot price"),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Evaluates current 1-Day Gift Nifty signal:
-    - If >= +80 pts -> BUY CALL (ITM 3)
-    - If <= -80 pts -> BUY PUT (ITM 3)
-    - Between -80 and +80 -> NEUTRAL WAIT
-    - Checks 09:15 - 09:17 AM IST window and maximum 1 trade per day constraint.
-    """
-    return await strategy_service.evaluate_signal(db=db, gift_nifty_change=gift_nifty_change)
+    """Evaluates Gift Nifty 1-Day directional signal against Nifty Directional rules."""
+    return await strategy_service.evaluate_signal(
+        db=db, gift_nifty_change=gift_nifty_change, spot_price=spot_price
+    )
 
 
 @router.post("/mode", response_model=APIResponse[dict])
@@ -172,30 +192,82 @@ async def switch_mode(
     payload: ModeSwitchRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Switch trading mode: PAPER (default), LIVE, or BACKTEST."""
+    """Switch trading mode: BACKTEST (default) or LIVE."""
     return await strategy_service.switch_mode(
         db, new_mode=payload.mode, confirm_live=bool(payload.confirm_live)
     )
 
 
+@router.get("/backtest", response_model=APIResponse[dict])
 @router.post("/backtest", response_model=APIResponse[dict])
 async def run_backtest(
-    from_date: str = Query("2026-01-01", description="Start date YYYY-MM-DD"),
-    to_date: str = Query("2026-11-03", description="End date YYYY-MM-DD"),
+    duration: Optional[str] = Query("3M", description="Duration code: 1M, 3M, 6M, 1Y, CUSTOM"),
+    from_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD for custom range"),
+    to_date: Optional[str] = Query(None, description="End date YYYY-MM-DD for custom range"),
     capital: Optional[float] = Query(None, description="Initial strategy capital"),
-    lots: Optional[int] = Query(None, description="Lot size"),
+    lots: Optional[int] = Query(None, description="Lot size multiplier"),
+    payload: Optional[BacktestRequest] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Backtest default 'Gift Nifty Directional' strategy:
-    - Analyzes historical Gift Nifty 1-day gaps and NIFTY 3rd ITM options.
-    - Computes win rate, profit factor, drawdown, stop loss / target hits, and net P&L.
-    - If historical data unavailable, displays DATA UNAVAILABLE.
+    Run Historical Strategy Backtest for 'Nifty Directional':
+    - Duration options: 1 Month (1M), 3 Months (3M), 6 Months (6M), 1 Year (1Y), Custom Date Range (CUSTOM).
+    - Never places live orders.
     """
+    dur = (payload.duration if payload and payload.duration else duration) or "3M"
+    start_d = payload.from_date if payload and payload.from_date else from_date
+    end_d = payload.to_date if payload and payload.to_date else to_date
+    cap = payload.capital if payload and payload.capital else capital
+    trade_lots = payload.lots if payload and payload.lots else lots
+
     return await strategy_service.run_backtest(
         db=db,
-        from_date=from_date,
-        to_date=to_date,
-        capital=capital,
-        lots=lots,
+        duration=dur,
+        from_date=start_d,
+        to_date=end_d,
+        capital=cap,
+        lots=trade_lots,
+    )
+
+
+@router.get("/backtest/runs", response_model=APIResponse[list])
+async def list_backtest_runs(
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """List recently executed backtest runs."""
+    return await strategy_service.list_backtest_runs(db=db, limit=limit)
+
+
+@router.get("/backtest/runs/{run_id}", response_model=APIResponse[dict])
+async def get_backtest_run(
+    run_id: str = Path(..., description="Backtest run ID"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve a stored backtest run by ID."""
+    payload = await strategy_service.get_backtest_run(db=db, run_id=run_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail=f"Backtest run {run_id} not found.")
+    return {
+        "connection_status": "connected",
+        "data": payload,
+        "message": f"Retrieved backtest run {run_id}.",
+    }
+
+
+@router.get("/backtest/runs/{run_id}/export.csv")
+async def export_backtest_run_csv(
+    run_id: str = Path(..., description="Backtest run ID"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a stored backtest run's detailed daily trade table as CSV."""
+    payload = await strategy_service.get_backtest_run(db=db, run_id=run_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail=f"Backtest run {run_id} not found.")
+    csv_text = strategy_service.export_backtest_csv(payload)
+    filename = f"nifty_directional_backtest_{payload.get('duration_code', 'run')}_{payload.get('start_date', '')}_{payload.get('end_date', '')}.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -8,13 +8,12 @@ import {
   LayoutDashboard,
   ClipboardList,
   LineChart,
-  Sliders,
   Settings,
   LogOut,
   X,
   Shield,
-  Activity,
-  Layers,
+  Compass,
+  History,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -27,7 +26,15 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
   const router = useRouter();
   const { credentials, connectionStatus, strategy } = useTrading();
 
-  const navLinks = [
+  interface NavLinkItem {
+    label: string;
+    href: string;
+    icon: React.ComponentType<{ className?: string }>;
+    badge: string | null;
+    badgeColor?: string;
+  }
+
+  const navLinks: NavLinkItem[] = [
     {
       label: "Dashboard",
       href: "/",
@@ -35,26 +42,34 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
       badge: null,
     },
     {
+      label: "Strategy",
+      href: "/strategy",
+      icon: Compass,
+      badge: strategy.status === "RUNNING" ? "ACTIVE" : "ITM 3",
+      badgeColor:
+        strategy.status === "RUNNING"
+          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+          : "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+    },
+    {
+      label: "Backtest",
+      href: "/backtest",
+      icon: History,
+      badge: "1M–1Y",
+      badgeColor: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    },
+    {
       label: "Orders",
       href: "/orders",
       icon: ClipboardList,
       badge: "Live",
+      badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
     },
     {
       label: "P&L",
       href: "/pnl",
       icon: LineChart,
       badge: null,
-    },
-    {
-      label: "Strategy",
-      href: "/strategy",
-      icon: Sliders,
-      badge: strategy.status === "RUNNING" ? "Active" : "Halted",
-      badgeColor:
-        strategy.status === "RUNNING"
-          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-          : "bg-slate-800 text-slate-400 border-slate-700",
     },
     {
       label: "Settings",
@@ -141,7 +156,8 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
               {item.badge && (
                 <span
                   className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
-                    item.badgeColor || "bg-slate-800 text-slate-400 border-slate-700"
+                    item.badgeColor ||
+                    "bg-slate-800 text-slate-400 border-slate-700"
                   }`}
                 >
                   {item.badge}
@@ -167,15 +183,15 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
         </div>
 
         <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400 border-t border-slate-800/80">
-          <span>Algo Engine</span>
+          <span>Broker API</span>
           <span
             className={`font-mono text-[10px] ${
-              strategy.status === "RUNNING"
+              connectionStatus === "CONNECTED"
                 ? "text-emerald-400"
-                : "text-amber-400"
+                : "text-rose-400"
             }`}
           >
-            {strategy.status === "RUNNING" ? "AUTOMATED" : "PAUSED"}
+            {connectionStatus === "CONNECTED" ? "UPSTOX v2 LIVE" : "DISCONNECTED"}
           </span>
         </div>
       </div>
@@ -200,14 +216,14 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
         {sidebarContent}
       </aside>
 
-      {/* Mobile Drawer Overlay */}
+      {/* Mobile Drawer */}
       {isMobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
+        <div className="fixed inset-0 z-50 lg:hidden flex">
           <div
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm"
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs"
             onClick={onCloseMobile}
           />
-          <div className="relative w-72 max-w-[85vw] h-full shadow-2xl z-10 animate-in slide-in-from-left duration-200">
+          <div className="relative w-64 max-w-xs h-full z-10">
             {sidebarContent}
           </div>
         </div>
@@ -215,4 +231,3 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
     </>
   );
 }
-

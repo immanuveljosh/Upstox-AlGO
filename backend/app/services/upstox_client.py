@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import quote
 from typing import Optional, Dict, Any, List
 import httpx
 from backend.app.core.config import settings
@@ -7,17 +8,17 @@ logger = logging.getLogger("algo_trader.upstox")
 
 
 class UpstoxClient:
-    """Async client for Upstox v2 Open API."""
+    """Async client for Upstox v2 / v3 Open API."""
 
     def __init__(self, base_url: str = settings.UPSTOX_BASE_URL):
         self.base_url = base_url.rstrip("/")
-        self.timeout = httpx.Timeout(10.0, connect=5.0)
+        self.timeout = httpx.Timeout(12.0, connect=5.0)
 
-    def _headers(self, access_token: str) -> Dict[str, str]:
-        return {
-            "Accept": "application/json",
-            "Authorization": f"Bearer {access_token}",
-        }
+    def _headers(self, access_token: Optional[str] = None) -> Dict[str, str]:
+        headers = {"Accept": "application/json"}
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+        return headers
 
     async def exchange_token(
         self,
@@ -116,6 +117,23 @@ class UpstoxClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def get_gift_nifty_quote(self, access_token: str) -> Optional[Dict[str, Any]]:
+        """
+        Attempt to fetch live GIFT NIFTY quote from Upstox Global Instruments
+        (`GLOBAL_INDEX|SGX NIFTY`). Returns None if unavailable.
+        """
+        for key in ("GLOBAL_INDEX|SGX NIFTY", "GLOBAL_INDEX|GIFT NIFTY"):
+            try:
+                resp = await self.get_market_quote(access_token, key)
+                data = resp.get("data") or {}
+                if data:
+                    first = list(data.values())[0]
+                    if first and first.get("last_price"):
+                        return first
+            except Exception as exc:
+                logger.debug(f"Gift Nifty quote probe ({key}): {exc}")
+        return None
+
     async def get_option_contracts(
         self,
         access_token: str,
@@ -133,15 +151,78 @@ class UpstoxClient:
             data = resp.json()
             return data.get("data", [])
 
+    async def get_option_chain(
+        self,
+        access_token: str,
+        instrument_key: str = "NSE_INDEX|Nifty 50",
+        expiry_date: str = "",
+    ) -> List[Dict[str, Any]]:
+        """Fetch live Put/Call option chain with market data and greeks from Upstox `/v2/option/chain`."""
+        url = f"{self.base_url}/option/chain"
+        params = {"instrument_key": instrument_key, "expiry_date": expiry_date}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(url, headers=self._headers(access_token), params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("data", [])
+
+    async def get_expired_expiries(
+        self,
+        access_token: str,
+        instrument_key: str = "NSE_INDEX|Nifty 50",
+    ) -> List[str]:
+        """Fetch historical expired expiry dates from `/v2/expired-instruments/expiries`."""
+        url = f"{self.base_url}/expired-instruments/expiries"
+        params = {"instrument_key": instrument_key}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(url, headers=self._headers(access_token), params=params)
+            if resp.status_code == 200:
+                return resp.json().get("data", []) or []
+            return []
+
+    async def get_expired_option_contracts(
+        self,
+        access_token: str,
+        instrument_key: str = "NSE_INDEX|Nifty 50",
+        expiry_date: str = "",
+    ) -> List[Dict[str, Any]]:
+        """Fetch expired option contracts for a specific expiry date from `/v2/expired-instruments/option/contract`."""
+        url = f"{self.base_url}/expired-instruments/option/contract"
+        params = {"instrument_key": instrument_key, "expiry_date": expiry_date}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(url, headers=self._headers(access_token), params=params)
+            if resp.status_code == 200:
+                return resp.json().get("data", []) or []
+            return []
+
+    async def get_expired_historical_candles(
+        self,
+        access_token: str,
+        expired_instrument_key: str,
+        interval: str = "1minute",
+        to_date: str = "",
+        from_date: str = "",
+    ) -> List[List[Any]]:
+        """Fetch historical OHLC candles for an expired option contract."""
+        encoded_key = quote(expired_instrument_key, safe="")
+        url = f"{self.base_url}/expired-instruments/historical-candle/{encoded_key}/{interval}/{to_date}/{from_date}"
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(url, headers=self._headers(access_token))
+            if resp.status_code == 200:
+                return resp.json().get("data", {}).get("candles", []) or []
+            return []
+
     async def get_historical_candles(
         self,
         instrument_key: str,
-        interval: str = "5minute",
+        interval: str = "day",
         to_date: str = "2026-11-03",
         from_date: str = "2026-10-15",
+        access_token: Optional[str] = None,
     ) -> List[List[Any]]:
         """Fetch historical V2 candles."""
-        url = f"{self.base_url}/historical-candle/{instrument_key}/{interval}/{to_date}/{from_date}"
+        encoded_key = quote(instrument_key, safe="")
+        url = f"{self.base_url}/historical-candle/{encoded_key}/{interval}/{to_date}/{from_date}"
         headers = {"Accept": "application/json"}
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.get(url, headers=headers)
@@ -152,4 +233,3 @@ class UpstoxClient:
 
 
 upstox_client = UpstoxClient()
-

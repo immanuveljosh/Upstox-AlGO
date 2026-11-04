@@ -17,6 +17,7 @@ import {
   ExternalLink,
   Info,
   Layers,
+  AlertCircle,
 } from "lucide-react";
 
 export function BrokerSettings() {
@@ -208,6 +209,16 @@ export function BrokerSettings() {
             <p className="text-[11px] text-slate-500 mt-1">
               Important: This must exactly match the Redirect URI registered in your Upstox Developer App console.
             </p>
+
+            <div className="mt-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300 space-y-1">
+              <div className="flex items-center gap-1.5 font-semibold text-amber-200">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>Fixing Upstox Error: UDAPI100016 - Invalid Credentials</span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                If Upstox displays <code>UDAPI100016: Invalid Credentials</code> on the redirect screen, the Redirect URL registered in your <a href="https://developer.upstox.com" target="_blank" rel="noopener noreferrer" className="underline text-emerald-400 font-medium">Upstox Developer Console</a> does not match. Copy the exact URI above (<code>http://localhost:8000/api/v1/auth/callback</code>), paste it into your App details on developer.upstox.com, and click Save.
+              </p>
+            </div>
           </div>
 
           {/* Active Access Token */}

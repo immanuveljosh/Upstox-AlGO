@@ -1,25 +1,62 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTrading } from "@/context/TradingContext";
-import { mockIntradayCandles } from "@/lib/mockData";
+import { CandleData } from "@/types/trading";
 import { DisconnectedNotice } from "@/components/ui/DisconnectedNotice";
 import {
-  Maximize2,
-  TrendingUp,
   BarChart2,
-  Layers,
-  Clock,
   Activity,
+  Layers,
 } from "lucide-react";
 
 export function NiftyChart() {
-  const { connectionStatus, niftyPrice, activePosition } = useTrading();
+  const { connectionStatus, niftyPrice, niftyChange, niftyChangePct } = useTrading();
   const [timeframe, setTimeframe] = useState<string>("5m");
   const [showVwap, setShowVwap] = useState<boolean>(true);
   const [hoveredCandleIndex, setHoveredCandleIndex] = useState<number | null>(null);
+  const [candles, setCandles] = useState<CandleData[]>([]);
 
   const isConnected = connectionStatus === "CONNECTED";
+
+  useEffect(() => {
+    if (!isConnected) return;
+    let isSubscribed = true;
+
+    async function fetchCandles() {
+      try {
+        const toDate = new Date().toISOString().split("T")[0];
+        const res = await fetch(
+          `http://localhost:8000/api/v1/market/historical-candles?interval=1minute&to_date=${toDate}`
+        );
+        if (res.ok && isSubscribed) {
+          const json = await res.json();
+          if (Array.isArray(json.data) && json.data.length > 0) {
+            setCandles(
+              json.data.slice(-30).map((c: any) => ({
+                time: c.time ? c.time.substring(11, 16) : "",
+                open: Number(c.open),
+                high: Number(c.high),
+                low: Number(c.low),
+                close: Number(c.close),
+                vwap: (Number(c.high) + Number(c.low) + Number(c.close)) / 3,
+                volume: Number(c.volume) || 0,
+              }))
+            );
+          }
+        }
+      } catch {
+        // Handled silently
+      }
+    }
+
+    fetchCandles();
+    const interval = setInterval(fetchCandles, 15000);
+    return () => {
+      isSubscribed = false;
+      clearInterval(interval);
+    };
+  }, [isConnected, timeframe]);
 
   if (!isConnected) {
     return (
@@ -29,10 +66,51 @@ export function NiftyChart() {
     );
   }
 
-  const candles = mockIntradayCandles;
+  const hasCandles = candles.length > 1;
+
+  if (!hasCandles) {
+    return (
+      <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 flex flex-col h-[340px] justify-between">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <BarChart2 className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-sm font-bold text-white tracking-tight">
+              NIFTY 50 Live Market Feed
+            </h3>
+          </div>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold">
+            Upstox Live Quote
+          </span>
+        </div>
+
+        <div className="flex flex-col items-center justify-center text-center py-8">
+          <div className="font-mono text-3xl font-extrabold text-white tracking-tight">
+            ₹{niftyPrice ? niftyPrice.toLocaleString("en-IN", { minimumFractionDigits: 2 }) : "—"}
+          </div>
+          <div
+            className={`font-mono text-xs font-semibold mt-1 ${
+              niftyChange >= 0 ? "text-emerald-400" : "text-rose-400"
+            }`}
+          >
+            {niftyChange >= 0 ? `+${niftyChange.toFixed(2)}` : niftyChange.toFixed(2)} pts (
+            {niftyChangePct >= 0 ? `+${niftyChangePct.toFixed(2)}` : niftyChangePct.toFixed(2)}%)
+          </div>
+          <p className="text-xs text-slate-400 mt-3 max-w-sm">
+            Live spot quotes streaming directly from NSE via Upstox API. Intraday candle charts compile automatically from market ticks.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-800 pt-3">
+          <span>Source: Upstox v2 API</span>
+          <span>Feed: Real-Time NSE_INDEX</span>
+        </div>
+      </div>
+    );
+  }
+
   const minPrice = Math.min(...candles.map((c) => c.low)) - 10;
   const maxPrice = Math.max(...candles.map((c) => c.high)) + 10;
-  const priceRange = maxPrice - minPrice;
+  const priceRange = Math.max(1, maxPrice - minPrice);
 
   const chartHeight = 240;
   const chartWidth = 720;
@@ -45,7 +123,6 @@ export function NiftyChart() {
   const hoveredCandle =
     hoveredCandleIndex !== null ? candles[hoveredCandleIndex] : candles[candles.length - 1];
 
-  // Calculate VWAP path
   const vwapPoints = candles
     .map((c, i) => `${i * candleWidth + candleWidth / 2},${getY(c.vwap)}`)
     .join(" ");
@@ -80,9 +157,8 @@ export function NiftyChart() {
 
         {/* Timeframe & Overlays */}
         <div className="flex items-center gap-2">
-          {/* Timeframe selector */}
           <div className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-xs">
-            {["1m", "5m", "15m", "1h"].map((tf) => (
+            {["1m", "5m", "15m"].map((tf) => (
               <button
                 key={tf}
                 onClick={() => setTimeframe(tf)}
@@ -97,13 +173,12 @@ export function NiftyChart() {
             ))}
           </div>
 
-          {/* VWAP toggle */}
           <button
             onClick={() => setShowVwap(!showVwap)}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-mono border transition-colors ${
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-mono border transition-all ${
               showVwap
-                ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
-                : "bg-slate-950 border-slate-800 text-slate-500"
+                ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                : "bg-slate-950 text-slate-500 border-slate-800"
             }`}
           >
             VWAP
@@ -111,120 +186,44 @@ export function NiftyChart() {
         </div>
       </div>
 
-      {/* SVG Canvas Area */}
-      <div className="relative w-full h-[260px] mt-4 select-none">
+      {/* SVG Canvas */}
+      <div className="relative mt-4 h-[240px] w-full overflow-hidden">
         <svg
           viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-          preserveAspectRatio="none"
           className="w-full h-full overflow-visible"
+          preserveAspectRatio="none"
         >
-          {/* Grid lines */}
-          {[0.2, 0.4, 0.6, 0.8].map((ratio) => {
-            const y = chartHeight * ratio;
-            const priceLevel = maxPrice - ratio * priceRange;
-            return (
-              <g key={ratio}>
-                <line
-                  x1="0"
-                  y1={y}
-                  x2={chartWidth}
-                  y2={y}
-                  stroke="#1e293b"
-                  strokeDasharray="3 3"
-                  strokeWidth="1"
-                />
-                <text
-                  x={chartWidth - 5}
-                  y={y - 4}
-                  textAnchor="end"
-                  fill="#475569"
-                  fontSize="10"
-                  fontFamily="monospace"
-                >
-                  {priceLevel.toFixed(0)}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* VWAP indicator line */}
-          {showVwap && (
-            <polyline
-              fill="none"
-              stroke="#f59e0b"
-              strokeWidth="1.5"
-              strokeDasharray="4 2"
-              points={vwapPoints}
-              opacity="0.85"
-            />
-          )}
-
-          {/* Active strike marker */}
-          {activePosition && (
-            <g>
-              <line
-                x1="0"
-                y1={getY(activePosition.strike)}
-                x2={chartWidth}
-                y2={getY(activePosition.strike)}
-                stroke="#06b6d4"
-                strokeWidth="1.5"
-                strokeDasharray="2 2"
-              />
-              <rect
-                x="6"
-                y={getY(activePosition.strike) - 10}
-                width="110"
-                height="18"
-                rx="3"
-                fill="#083344"
-                stroke="#06b6d4"
-              />
-              <text
-                x="12"
-                y={getY(activePosition.strike) + 3}
-                fill="#22d3ee"
-                fontSize="9"
-                fontFamily="monospace"
-                fontWeight="bold"
-              >
-                STRIKE {activePosition.strike}
-              </text>
-            </g>
-          )}
-
-          {/* Candlesticks */}
           {candles.map((candle, idx) => {
-            const x = idx * candleWidth + candleWidth / 2;
             const isGreen = candle.close >= candle.open;
+            const x = idx * candleWidth;
+            const centerX = x + candleWidth / 2;
             const openY = getY(candle.open);
             const closeY = getY(candle.close);
             const highY = getY(candle.high);
             const lowY = getY(candle.low);
             const bodyY = Math.min(openY, closeY);
-            const bodyHeight = Math.max(Math.abs(closeY - openY), 2);
-            const color = isGreen ? "#10b981" : "#ef4444";
+            const bodyHeight = Math.max(2, Math.abs(openY - closeY));
+            const barWidth = Math.max(3, candleWidth * 0.7);
 
             return (
               <g
-                key={candle.time}
-                className="cursor-crosshair group"
+                key={idx}
                 onMouseEnter={() => setHoveredCandleIndex(idx)}
+                onMouseLeave={() => setHoveredCandleIndex(null)}
+                className="cursor-crosshair group"
               >
-                {/* Candle Wick */}
                 <line
-                  x1={x}
+                  x1={centerX}
                   y1={highY}
-                  x2={x}
+                  x2={centerX}
                   y2={lowY}
-                  stroke={color}
+                  stroke={isGreen ? "#10b981" : "#ef4444"}
                   strokeWidth="1.2"
                 />
-                {/* Candle Body */}
                 <rect
-                  x={x - candleWidth * 0.35}
+                  x={centerX - barWidth / 2}
                   y={bodyY}
-                  width={candleWidth * 0.7}
+                  width={barWidth}
                   height={bodyHeight}
                   fill={isGreen ? "#10b981" : "#ef4444"}
                   rx="1"
@@ -232,35 +231,18 @@ export function NiftyChart() {
               </g>
             );
           })}
+
+          {showVwap && (
+            <polyline
+              fill="none"
+              stroke="#f59e0b"
+              strokeWidth="1.5"
+              strokeDasharray="3 3"
+              points={vwapPoints}
+            />
+          )}
         </svg>
-
-        {/* Live LTP indicator bar */}
-        <div
-          className="absolute right-0 flex items-center pr-2 pointer-events-none transition-all duration-300"
-          style={{
-            top: `${Math.max(10, Math.min(chartHeight - 20, getY(niftyPrice)))}px`,
-          }}
-        >
-          <div className="h-px w-full bg-emerald-500/50 absolute left-0" />
-          <span className="relative z-10 px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-mono font-bold text-[11px] shadow-sm">
-            {niftyPrice.toFixed(2)}
-          </span>
-        </div>
-      </div>
-
-      {/* Timeline X-Axis */}
-      <div className="flex items-center justify-between pt-2 border-t border-slate-800 text-[10px] text-slate-400 font-mono">
-        <span>09:15</span>
-        <span>10:00</span>
-        <span>10:45</span>
-        <span>11:30</span>
-        <span>12:15</span>
-        <span>13:00</span>
-        <span>13:45</span>
-        <span>14:30</span>
-        <span className="text-emerald-400 font-bold">15:30 (Market Close)</span>
       </div>
     </div>
   );
 }
-

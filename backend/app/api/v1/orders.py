@@ -11,6 +11,7 @@ router = APIRouter(prefix="/orders", tags=["Orders"])
 
 
 @router.post("/place", response_model=APIResponse[OrderPlacedData])
+@router.post("/directional", response_model=APIResponse[OrderPlacedData])
 @router.post("", response_model=APIResponse[OrderPlacedData])
 async def place_order(
     payload: OrderCreateRequest,
@@ -31,6 +32,12 @@ async def place_order(
         price=payload.price,
         trigger_price=payload.trigger_price,
     )
+
+
+@router.get("/positions", response_model=APIResponse[list])
+async def get_positions(db: AsyncSession = Depends(get_db)):
+    """Fetch live intraday positions directly from Upstox portfolio."""
+    return await order_service.get_positions(db=db)
 
 
 @router.post("/exit-all", response_model=APIResponse[ExitAllResultData])

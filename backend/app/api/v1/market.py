@@ -25,6 +25,7 @@ async def get_nifty_spot(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/gift-nifty", response_model=APIResponse[GiftNiftyData])
+@router.get("/gift-nifty-1day", response_model=APIResponse[GiftNiftyData])
 async def get_gift_nifty(db: AsyncSession = Depends(get_db)):
     """
     Get Gift Nifty 1-Day value, day change (+/- points), and threshold trigger status (+80 / -80).
@@ -55,3 +56,9 @@ async def get_historical_candles(
     return await market_service.get_historical_candles(
         db=db, interval=interval, to_date=to_date, from_date=from_date
     )
+
+
+@router.get("/funds", response_model=APIResponse[dict])
+async def get_funds(db: AsyncSession = Depends(get_db)):
+    """Fetch live account funds and available margin from Upstox."""
+    return await market_service.get_funds(db=db)

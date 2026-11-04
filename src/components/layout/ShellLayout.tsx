@@ -31,7 +31,7 @@ export function ShellLayout({ children }: { children: React.ReactNode }) {
         <div className="bg-amber-500/15 border-b border-amber-500/30 text-amber-300 px-4 py-1.5 text-xs flex items-center justify-center gap-2 font-medium tracking-wide">
           <History className="w-3.5 h-3.5" />
           <span>
-            <strong>BACKTEST SIMULATION MODE ACTIVE:</strong> Orders are simulated in paper sandbox using historical Nifty candles. Real Upstox capital is unaffected.
+            <strong>BACKTEST SIMULATION MODE ACTIVE:</strong> Orders are simulated safely using historical Nifty candle data. Real Upstox live capital is untouched.
           </span>
         </div>
       )}

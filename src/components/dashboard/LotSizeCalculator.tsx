@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   Layers,
-  ShieldCheck,
   Database,
   Minus,
   Plus,
@@ -27,13 +26,8 @@ export default function LotSizeCalculator({
   onLotsChange,
   optionType,
 }: LotSizeCalculatorProps) {
-  const {
-    strategy,
-    instrumentMetadata,
-    niftyPrice,
-    stats,
-    updateStrategyLots,
-  } = useTrading();
+  const { strategy, instrumentMetadata, niftyPrice, updateStrategyLots } =
+    useTrading();
 
   const actualLotSize = strategy.lotSize || instrumentMetadata.lotSize || 65;
   const freezeQty = instrumentMetadata.freezeQuantity || 1755;
@@ -49,27 +43,27 @@ export default function LotSizeCalculator({
   const parsedLots = Math.max(0, Math.floor(Number(inputValue) || 0));
   const totalQuantity = parsedLots * actualLotSize;
 
-  // Determine active contract symbol & premium
-  const atmStrike = Math.round(niftyPrice / 50) * 50;
+  // Determine active contract symbol from live spot when available
+  const hasSpot = niftyPrice > 0;
+  const atmStrike = hasSpot ? Math.round(niftyPrice / 50) * 50 : null;
   const effectiveType =
     optionType || (strategy.signal === "BEARISH" ? "PE" : "CE");
-  const itm3Strike =
-    effectiveType === "CE" ? atmStrike - 150 : atmStrike + 150;
-  const contractSymbol = `NIFTY ${itm3Strike} ${effectiveType}`;
-  const premium = effectiveType === "CE" ? 218.4 : 204.6;
-  const estimatedMargin = totalQuantity * premium;
+  const itm3Strike = atmStrike
+    ? effectiveType === "CE"
+      ? atmStrike - 150
+      : atmStrike + 150
+    : null;
+  const contractSymbol = itm3Strike
+    ? `NIFTY ${itm3Strike} ${effectiveType}`
+    : `NIFTY ITM 3 ${effectiveType}`;
 
   // Validation checks against broker & exchange rules
   const isPositiveWholeLots = Number.isInteger(parsedLots) && parsedLots >= 1;
   const isExactMultiple =
     totalQuantity > 0 && totalQuantity % actualLotSize === 0;
   const isWithinFreezeLimit = totalQuantity <= freezeQty;
-  const isWithinCapital = estimatedMargin <= stats.marginAvailable;
   const isValidOrder =
-    isPositiveWholeLots &&
-    isExactMultiple &&
-    isWithinFreezeLimit &&
-    isWithinCapital;
+    isPositiveWholeLots && isExactMultiple && isWithinFreezeLimit;
 
   const applyLots = (newLots: number) => {
     const clamped = Math.max(1, Math.min(maxLots, newLots));
@@ -116,10 +110,10 @@ export default function LotSizeCalculator({
           </div>
           <div>
             <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-              Lot Size & Quantity Calculator
+              Lot Size &amp; Quantity Calculator
             </h3>
             <p className="text-[10px] text-slate-400">
-              NSE F&O Exchange Contract Metadata • Upstox v2 API
+              Nifty Directional • Validated Upstox Contract Lot Size
             </p>
           </div>
         </div>
@@ -132,13 +126,13 @@ export default function LotSizeCalculator({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-900/80 border border-slate-800 rounded-lg p-2.5">
         <div>
           <div className="text-[10px] text-slate-500 uppercase">
-            Selected Instrument
+            Selected Contract
           </div>
           <div className="text-xs font-bold font-mono text-white mt-0.5">
             {contractSymbol}
           </div>
           <div className="text-[10px] text-upstox-accent font-mono">
-            3rd ITM • {instrumentMetadata.instrumentKey}
+            ITM 3 • {instrumentMetadata.source}
           </div>
         </div>
         <div>
@@ -249,22 +243,21 @@ export default function LotSizeCalculator({
               Automatic Quantity Formula
             </span>
             <span className="text-[10px] font-mono text-emerald-400">
-              Total Qty = Lots × Lot Size
+              Total Qty = Lots &times; Lot Size
             </span>
           </div>
 
           <div className="my-2 flex items-baseline justify-between bg-slate-950/80 border border-slate-800/90 rounded-lg px-3 py-2">
             <div className="text-xs font-mono text-slate-300">
               <span className="text-white font-bold">{parsedLots}</span>{" "}
-              {parsedLots === 1 ? "Lot" : "Lots"} ×{" "}
+              {parsedLots === 1 ? "Lot" : "Lots"} &times;{" "}
               <span className="text-emerald-400 font-bold">
                 {actualLotSize}
               </span>{" "}
               units/lot
             </div>
             <div className="text-base font-black font-mono text-white">
-              ={" "}
-              <span className="text-upstox-accent">{totalQuantity}</span>{" "}
+              = <span className="text-upstox-accent">{totalQuantity}</span>{" "}
               <span className="text-xs font-normal text-slate-400">Qty</span>
             </div>
           </div>
@@ -275,9 +268,9 @@ export default function LotSizeCalculator({
               {actualLotSize * 3}
             </span>
             <span>
-              Est. Value:{" "}
+              Capital:{" "}
               <strong className="text-white">
-                ₹{formatIndianNumber(Math.round(estimatedMargin))}
+                ₹{formatIndianNumber(strategy.totalCapital)}
               </strong>
             </span>
           </div>
@@ -296,43 +289,30 @@ export default function LotSizeCalculator({
                 </span>
                 <span className="text-slate-400 font-mono">
                   {totalQuantity} Qty is an exact multiple of {actualLotSize}{" "}
-                  (≤ {formatIndianNumber(freezeQty)} freeze limit)
+                  (&le; {formatIndianNumber(freezeQty)} freeze limit)
                 </span>
               </>
             ) : (
               <>
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span className="text-amber-400 font-medium">
-                  {!isPositiveWholeLots
-                    ? "Enter at least 1 lot."
-                    : !isWithinFreezeLimit
-                    ? `Exceeds NSE freeze limit of ${freezeQty} qty (${maxLots} lots).`
-                    : !isWithinCapital
-                    ? `Margin ₹${formatIndianNumber(
-                        Math.round(estimatedMargin)
-                      )} exceeds available ₹${formatIndianNumber(
-                        Math.round(stats.marginAvailable)
-                      )}.`
-                    : `Quantity must be a multiple of ${actualLotSize}.`}
+                  Quantity Validation Warning:
+                </span>
+                <span className="text-slate-400 font-mono">
+                  Must be 1–{maxLots} lots
                 </span>
               </>
             )}
           </div>
 
-          <div className="flex items-center gap-3 text-[10px] font-mono text-slate-400">
-            <span className="flex items-center gap-1">
-              <ShieldCheck className="w-3 h-3 text-upstox-accent" />
-              SL (-5%):{" "}
-              <strong className="text-red-400">-{slPoints} pts</strong>
-            </span>
-            <span>
-              Target (+6%):{" "}
-              <strong className="text-emerald-400">+{targetPoints} pts</strong>
-            </span>
+          <div className="text-[11px] font-mono text-slate-400">
+            SL ({strategy.stoplossPercent}%):{" "}
+            <strong className="text-rose-400">-{slPoints} pts</strong> | Target
+            ({strategy.targetPercent}%):{" "}
+            <strong className="text-emerald-400">+{targetPoints} pts</strong>
           </div>
         </div>
       )}
     </div>
   );
 }
-

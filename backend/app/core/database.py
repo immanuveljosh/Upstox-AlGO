@@ -1,13 +1,14 @@
 from typing import AsyncGenerator
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from backend.app.core.config import settings
 
-# Engine setup
+# Engine setup (NullPool for SQLite prevents cross-event-loop connection reuse in async tests)
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     future=True,
-    # SQLite connection args if using sqlite
+    poolclass=NullPool if "sqlite" in settings.DATABASE_URL else None,
     connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
 )
 
@@ -27,4 +28,3 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             yield session
         finally:
             await session.close()
-

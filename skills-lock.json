@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "skills": {
+    "execution-plan-check": {
+      "source": "marian2js/trading-skills",
+      "sourceType": "github",
+      "skillPath": "skills/trade-construction/execution-plan-check/SKILL.md",
+      "computedHash": "fca47e98dc0d3d1672031bcbcb4fd843b8252bd9e2d5f42c9a34d2094ada65a0",
+      "installMode": "copy"
+    },
+    "fastapi": {
+      "source": "fastapi/fastapi",
+      "sourceType": "github",
+      "skillPath": "fastapi/.agents/skills/fastapi/SKILL.md",
+      "computedHash": "ff680b56037089d5f4cb399af70b0f9efd3d332887be464db11864b14eb3ad93",
+      "installMode": "copy"
+    },
+    "position-sizing": {
+      "source": "marian2js/trading-skills",
+      "sourceType": "github",
+      "skillPath": "skills/trade-construction/position-sizing/SKILL.md",
+      "computedHash": "3a13e47833c36a84bfb195e655724dba9c2b74f46969d43f4ba33d8e243d321a",
+      "installMode": "copy"
+    },
+    "risk-reward-sanity-check": {
+      "source": "marian2js/trading-skills",
+      "sourceType": "github",
+      "skillPath": "skills/trade-construction/risk-reward-sanity-check/SKILL.md",
+      "computedHash": "6d5522c79fc566e76333ad4220681a86a0ed7d32475b24859d5fd1cc8c50c69f",
+      "installMode": "copy"
+    },
+    "upstox": {
+      "source": "upstox/upstox-skills",
+      "sourceType": "github",
+      "skillPath": "skills/upstox/SKILL.md",
+      "computedHash": "81f204139a6f52d33e87b95bd5ad2acbd408856c1446c5b85e38dfdb2329c75f",
+      "installMode": "copy"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-best-practices/SKILL.md",
+      "computedHash": "3219a1944e404ffc14d1d9d6aef6dd2e3855b81387ee0a044ccbfe14d34c2357",
+      "installMode": "copy"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/web-design-guidelines/SKILL.md",
+      "computedHash": "a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a",
+      "installMode": "copy"
+    },
+    "webapp-testing": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/webapp-testing/SKILL.md",
+      "computedHash": "3f14af7f5690695209c22fbf8c8d133769a86d64892602c09bb13f135e14e857",
+      "installMode": "copy"
+    }
+  }
+}

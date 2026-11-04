@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useTrading } from "@/context/TradingContext";
-import { formatINR } from "@/lib/utils";
+import { formatINR, formatINRInteger } from "@/lib/utils";
 import { ArrowUpRight, ArrowDownRight, Zap, ShieldCheck } from "lucide-react";
 
 export function ManualOrderPanel() {
@@ -57,8 +57,8 @@ export function ManualOrderPanel() {
             <span className="text-slate-400 font-medium text-[11px]">
               Trade Quantity ({selectedLots} Lots = {totalQty} Qty)
             </span>
-            <span className="text-[11px] font-mono text-slate-500">
-              SL: ₹{strategy.stoplossAmount.toLocaleString()} &bull; Target: ₹{strategy.targetAmount.toLocaleString()}
+            <span suppressHydrationWarning className="text-[11px] font-mono text-slate-500">
+              SL: {formatINRInteger(strategy.stoplossAmount)} &bull; Target: {formatINRInteger(strategy.targetAmount)}
             </span>
           </div>
 

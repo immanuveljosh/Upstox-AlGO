@@ -2,6 +2,7 @@
 
 import React from "react";
 import { useTrading } from "@/context/TradingContext";
+import { formatINRInteger } from "@/lib/utils";
 import {
   Play,
   Square,
@@ -139,8 +140,8 @@ export function ActiveStrategyCard() {
           {/* Total Capital */}
           <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
             <span className="text-[10px] text-slate-400 block font-medium">Strategy Capital</span>
-            <span className="font-mono text-xs font-bold text-white mt-1 block">
-              ₹{strategy.totalCapital.toLocaleString()}
+            <span suppressHydrationWarning className="font-mono text-xs font-bold text-white mt-1 block">
+              {formatINRInteger(strategy.totalCapital)}
             </span>
             <span className="text-[10px] text-slate-500 font-mono">
               {strategy.lots} Lots ({strategy.lots * strategy.lotSize} Qty)
@@ -153,8 +154,8 @@ export function ActiveStrategyCard() {
               <ShieldAlert className="w-3 h-3 text-rose-400" />
               SL (5% Capital)
             </span>
-            <span className="font-mono text-xs font-bold text-rose-400 mt-1 block">
-              -₹{strategy.stoplossAmount.toLocaleString()}
+            <span suppressHydrationWarning className="font-mono text-xs font-bold text-rose-400 mt-1 block">
+              -{formatINRInteger(strategy.stoplossAmount)}
             </span>
             <span className="text-[10px] text-slate-500 font-mono">
               ~{strategy.stoplossPoints} pts
@@ -167,8 +168,8 @@ export function ActiveStrategyCard() {
               <Target className="w-3 h-3 text-emerald-400" />
               Target (6% Capital)
             </span>
-            <span className="font-mono text-xs font-bold text-emerald-400 mt-1 block">
-              +₹{strategy.targetAmount.toLocaleString()}
+            <span suppressHydrationWarning className="font-mono text-xs font-bold text-emerald-400 mt-1 block">
+              +{formatINRInteger(strategy.targetAmount)}
             </span>
             <span className="text-[10px] text-slate-500 font-mono">
               ~{strategy.targetPoints} pts

@@ -17,6 +17,7 @@ import {
   mockOrders,
   initialBrokerCredentials,
 } from "@/lib/mockData";
+import { formatIndianNumber } from "@/lib/utils";
 
 export interface ToastMessage {
   id: string;
@@ -461,7 +462,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     addToast({
       type: "success",
       title: "Risk Parameters Saved",
-      message: `SL: ${stoplossPercent}% (₹${slAmt.toLocaleString()}) | Target: ${targetPercent}% (₹${tgtAmt.toLocaleString()})`,
+      message: `SL: ${stoplossPercent}% (₹${formatIndianNumber(slAmt)}) | Target: ${targetPercent}% (₹${formatIndianNumber(tgtAmt)})`,
     });
   };
 
@@ -482,7 +483,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     addToast({
       type: "info",
       title: "Capital Updated",
-      message: `Total Strategy Capital set to ₹${totalCapital.toLocaleString()}`,
+      message: `Total Strategy Capital set to ₹${formatIndianNumber(totalCapital)}`,
     });
   };
 

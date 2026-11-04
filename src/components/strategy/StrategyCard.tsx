@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useTrading } from "@/context/TradingContext";
+import { formatINRInteger } from "@/lib/utils";
 import {
   Play,
   Square,
@@ -242,8 +243,8 @@ export function StrategyCard() {
               </span>
               <Shield className="w-4 h-4 text-emerald-400" />
             </div>
-            <div className="text-lg font-bold font-mono text-white mt-1">
-              ₹{strategy.totalCapital.toLocaleString()}
+            <div suppressHydrationWarning className="text-lg font-bold font-mono text-white mt-1">
+              {formatINRInteger(strategy.totalCapital)}
             </div>
             <div className="text-xs text-slate-400 font-mono mt-0.5">
               {strategy.lots} Lots &bull; {strategy.lots * strategy.lotSize} Quantity
@@ -282,14 +283,14 @@ export function StrategyCard() {
               </span>
               <Target className="w-4 h-4 text-amber-400" />
             </div>
-            <div className="text-sm font-bold font-mono text-white mt-1 space-y-0.5">
+            <div suppressHydrationWarning className="text-sm font-bold font-mono text-white mt-1 space-y-0.5">
               <div className="text-rose-400 flex items-center justify-between">
                 <span>Stop Loss (5%):</span>
-                <span>-₹{strategy.stoplossAmount.toLocaleString()}</span>
+                <span>-{formatINRInteger(strategy.stoplossAmount)}</span>
               </div>
               <div className="text-emerald-400 flex items-center justify-between">
                 <span>Target (6%):</span>
-                <span>+₹{strategy.targetAmount.toLocaleString()}</span>
+                <span>+{formatINRInteger(strategy.targetAmount)}</span>
               </div>
             </div>
           </div>

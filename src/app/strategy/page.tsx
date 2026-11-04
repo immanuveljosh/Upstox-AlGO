@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { StrategyCard } from "@/components/strategy/StrategyCard";
 import { useTrading } from "@/context/TradingContext";
+import { formatINRInteger } from "@/lib/utils";
 import {
   Sliders,
   CheckCircle2,
@@ -346,11 +347,12 @@ export default function StrategyPage() {
                   Net P&L (Net)
                 </span>
                 <div
+                  suppressHydrationWarning
                   className={`text-lg font-bold font-mono mt-1 ${
                     backtest.netPnl >= 0 ? "text-emerald-400" : "text-rose-400"
                   }`}
                 >
-                  ₹{backtest.netPnl.toLocaleString()}
+                  {formatINRInteger(backtest.netPnl, true)}
                 </div>
               </div>
 
@@ -399,8 +401,8 @@ export default function StrategyPage() {
                 <span className="text-[10px] uppercase font-semibold text-slate-400 block">
                   Avg Profit / Win
                 </span>
-                <div className="text-lg font-bold font-mono text-emerald-400 mt-1">
-                  +₹{backtest.avgProfitPerWin.toLocaleString()}
+                <div suppressHydrationWarning className="text-lg font-bold font-mono text-emerald-400 mt-1">
+                  +{formatINRInteger(backtest.avgProfitPerWin)}
                 </div>
               </div>
 
@@ -409,8 +411,8 @@ export default function StrategyPage() {
                 <span className="text-[10px] uppercase font-semibold text-slate-400 block">
                   Avg Loss / Loss
                 </span>
-                <div className="text-lg font-bold font-mono text-rose-400 mt-1">
-                  -₹{backtest.avgLossPerLoss.toLocaleString()}
+                <div suppressHydrationWarning className="text-lg font-bold font-mono text-rose-400 mt-1">
+                  -{formatINRInteger(backtest.avgLossPerLoss)}
                 </div>
               </div>
             </div>
@@ -455,11 +457,12 @@ export default function StrategyPage() {
                           <td className="py-2 px-3 text-right text-slate-300">₹{t.entry_price}</td>
                           <td className="py-2 px-3 text-right text-slate-300">₹{t.exit_price}</td>
                           <td
+                            suppressHydrationWarning
                             className={`py-2 px-3 text-right font-bold ${
                               t.pnl >= 0 ? "text-emerald-400" : "text-rose-400"
                             }`}
                           >
-                            {t.pnl >= 0 ? "+" : ""}₹{t.pnl.toLocaleString()}
+                            {formatINRInteger(t.pnl, true)}
                           </td>
                           <td className="py-2 px-3 text-center">
                             <span

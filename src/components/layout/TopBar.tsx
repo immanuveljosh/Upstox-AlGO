@@ -6,7 +6,7 @@ import { ModeToggle } from "@/components/ui/ModeToggle";
 import { ConnectionBadge } from "@/components/ui/ConnectionBadge";
 import { KillSwitchButton } from "@/components/ui/KillSwitchButton";
 import { TrendingUp, TrendingDown, Menu, AlertCircle } from "lucide-react";
-import { formatPoints, formatPercent } from "@/lib/utils";
+import { formatPoints, formatPercent, formatIndianNumber } from "@/lib/utils";
 
 interface TopBarProps {
   onToggleMobileSidebar: () => void;
@@ -45,11 +45,8 @@ export function TopBar({ onToggleMobileSidebar }: TopBarProps) {
 
           {isConnected ? (
             <div className="flex items-baseline gap-2">
-              <span className="font-mono text-base md:text-lg font-bold text-slate-50 tracking-tight tabular-nums">
-                {niftyPrice.toLocaleString("en-IN", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
+              <span suppressHydrationWarning className="font-mono text-base md:text-lg font-bold text-slate-50 tracking-tight tabular-nums">
+                {formatIndianNumber(niftyPrice, 2)}
               </span>
 
               <div

@@ -35,8 +35,28 @@ from backend.app.strategy.nifty_directional import (
 
 async def init_database():
     """Create all tables and ensure Nifty Directional default configuration."""
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        for col_name, col_type in [
+            ("expected_price", "FLOAT"),
+            ("slippage", "FLOAT"),
+            ("signal_time", "DATETIME"),
+            ("broker_confirmed_at", "DATETIME"),
+            ("exit_reason", "VARCHAR(100)"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE orders ADD COLUMN {col_name} {col_type}"))
+            except Exception:
+                pass
+        for col_name, col_type in [
+            ("connection_status", "VARCHAR(50)"),
+            ("last_error", "VARCHAR(500)"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE broker_tokens ADD COLUMN {col_name} {col_type}"))
+            except Exception:
+                pass
 
     async with AsyncSessionLocal() as session:
         from sqlalchemy import select, delete

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.app.models.broker_token import BrokerToken
 from backend.app.models.system_config import SystemConfig
-from backend.app.services.upstox_client import upstox_client
+from backend.app.services.upstox_client import upstox_client, UpstoxAuthException
 from backend.app.core.config import settings
 from backend.app.core.logging import logger
 from backend.app.strategy.nifty_directional import (
@@ -44,6 +44,16 @@ class BrokerService:
                 ]:
                     try:
                         await conn.execute(text(f"ALTER TABLE orders ADD COLUMN {col_name} {col_type}"))
+                    except Exception:
+                        pass
+
+                # Check and add connection tracking columns to broker_tokens table if missing
+                for col_name, col_type in [
+                    ("connection_status", "VARCHAR(50)"),
+                    ("last_error", "VARCHAR(500)"),
+                ]:
+                    try:
+                        await conn.execute(text(f"ALTER TABLE broker_tokens ADD COLUMN {col_name} {col_type}"))
                     except Exception:
                         pass
             BrokerService._tables_initialized = True
@@ -116,47 +126,97 @@ class BrokerService:
         self, db: AsyncSession, force_check: bool = False
     ) -> Tuple[bool, Optional[str], Optional[dict], int]:
         """
-        Validate the current Upstox token.
+        Validate the current Upstox token using the official Upstox user profile API.
         Returns: (is_connected: bool, message: Optional[str], profile_data: Optional[dict], latency_ms: int)
         """
         token_record = await self.get_or_create_token_record(db)
 
-        if not token_record.access_token:
+        if not token_record.access_token or not token_record.access_token.strip():
             token_record.is_valid = False
+            token_record.connection_status = "DISCONNECTED"
+            token_record.last_error = "No Upstox access token configured."
             await db.commit()
-            return False, "No Upstox access token configured. Please authenticate via OAuth or enter access token.", None, 0
+            return False, "Disconnected: No active Upstox access token configured. Please authenticate via OAuth or enter access token.", None, 0
+
+        # Fast cached response if verified recently (< 10s) and not force_check
+        now = datetime.utcnow()
+        if (
+            not force_check
+            and token_record.is_valid
+            and token_record.last_verified_at
+            and (now - token_record.last_verified_at).total_seconds() < 10
+        ):
+            cached_user = {
+                "user_id": token_record.user_id,
+                "user_name": token_record.user_name,
+                "email": token_record.email,
+            }
+            return True, "Connected to Upstox Live OMS", cached_user, 95
 
         start_time = time.time()
         try:
             profile_response = await upstox_client.get_profile(token_record.access_token)
-            latency_ms = int((time.time() - start_time) * 1000)
+            latency_ms = max(1, int((time.time() - start_time) * 1000))
 
             token_record.is_valid = True
+            token_record.connection_status = "CONNECTED"
+            token_record.last_error = None
             token_record.last_verified_at = datetime.utcnow()
-            user_data = profile_response.get("data", {})
+            user_data = profile_response.get("data", {}) or {}
             token_record.user_id = user_data.get("user_id") or token_record.user_id
             token_record.user_name = user_data.get("user_name") or token_record.user_name
             token_record.email = user_data.get("email") or token_record.email
             await db.commit()
 
-            return True, "Connected to Upstox Live OMS", user_data, latency_ms
+            return True, f"Connected to Upstox Live OMS ({latency_ms}ms)", user_data, latency_ms
 
-        except Exception as exc:
-            latency_ms = int((time.time() - start_time) * 1000)
-            logger.warning(f"Upstox token validation failed: {str(exc)}")
+        except UpstoxAuthException as exc:
+            latency_ms = max(1, int((time.time() - start_time) * 1000))
+            logger.warning(f"Upstox token validation failed ({exc.error_code}): {exc}")
             token_record.is_valid = False
             token_record.last_verified_at = datetime.utcnow()
+
+            msg_lower = str(exc).lower()
+            if "expired" in msg_lower or exc.error_code in ("UDAPI100057", "TOKEN_EXPIRED"):
+                token_record.connection_status = "TOKEN_EXPIRED"
+                token_record.last_error = "Upstox access token has expired."
+                user_msg = "Token Expired: Daily Upstox authorization expired. Please click 'Login with Upstox' to re-authenticate."
+            else:
+                token_record.connection_status = "AUTH_FAILED"
+                token_record.last_error = f"Authentication failed: {str(exc)}"
+                user_msg = f"Authentication Failed: {str(exc)}"
+
             await db.commit()
-            return False, "Broker connection lost. Access token is invalid or expired.", None, latency_ms
+            return False, user_msg, None, latency_ms
+
+        except Exception as exc:
+            latency_ms = max(1, int((time.time() - start_time) * 1000))
+            logger.warning(f"Upstox API unreachable: {exc}")
+            token_record.is_valid = False
+            token_record.connection_status = "DISCONNECTED"
+            token_record.last_error = f"Connection failed: {str(exc)}"
+            token_record.last_verified_at = datetime.utcnow()
+            await db.commit()
+            return False, f"Connection Failed: {str(exc)}", None, latency_ms
 
     async def update_access_token(self, db: AsyncSession, access_token: str) -> Tuple[bool, str]:
         """Update access token and immediately verify it."""
         token_record = await self.get_or_create_token_record(db)
-        token_record.access_token = access_token.strip()
+        token_record.access_token = access_token.strip() if access_token else None
         await db.commit()
 
         is_connected, msg, profile, _ = await self.verify_connection(db, force_check=True)
         return is_connected, msg
+
+    async def disconnect(self, db: AsyncSession) -> None:
+        """Explicitly disconnect Upstox broker session and clear token."""
+        token_record = await self.get_or_create_token_record(db)
+        token_record.access_token = None
+        token_record.is_valid = False
+        token_record.connection_status = "DISCONNECTED"
+        token_record.last_error = "Broker session disconnected by user."
+        token_record.last_verified_at = datetime.utcnow()
+        await db.commit()
 
 
 broker_service = BrokerService()

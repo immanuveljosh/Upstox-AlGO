@@ -10,7 +10,7 @@ import {
 
 export const initialBrokerCredentials: BrokerCredentials = {
   apiKey: process.env.NEXT_PUBLIC_UPSTOX_API_KEY || "",
-  apiSecret: process.env.NEXT_PUBLIC_UPSTOX_API_SECRET || "",
+  apiSecret: "",
   redirectUrl:
     process.env.NEXT_PUBLIC_UPSTOX_REDIRECT_URI ||
     "http://localhost:8000/api/v1/auth/callback",

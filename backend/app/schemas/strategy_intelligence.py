@@ -114,3 +114,4 @@ class StrategyIntelligenceData(BaseModel):
     signals: List[SignalAnalysisItem] = Field(default_factory=list)
     executions: List[ExecutionMonitoringItem] = Field(default_factory=list)
     message: str = ""
+

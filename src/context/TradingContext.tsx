@@ -33,6 +33,10 @@ interface TradingContextType {
   connectionStatus: ConnectionStatus;
   setConnectionStatus: (status: ConnectionStatus) => void;
   toggleConnection: () => void;
+  latencyMs: number;
+  lastVerified: string | null;
+  disconnectBroker: () => Promise<void>;
+  reconnectBroker: () => Promise<void>;
   niftyPrice: number;
   niftyChange: number;
   niftyChangePct: number;
@@ -99,6 +103,8 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   });
   const [stats, setStats] = useState<AccountStats>(initialStats);
   const [credentials, setCredentials] = useState<BrokerCredentials>(initialBrokerCredentials);
+  const [latencyMs, setLatencyMs] = useState<number>(0);
+  const [lastVerified, setLastVerified] = useState<string | null>(null);
   const [isKillSwitchModalOpen, setIsKillSwitchModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -121,18 +127,34 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function syncBrokerSession() {
       try {
-        const res = await fetch("http://localhost:8000/api/v1/auth/me");
+        const res = await fetch("http://localhost:8000/api/v1/broker/status");
         if (res.ok) {
           const json = await res.json();
-          if (json.connection_status === "connected" && json.data) {
+          const d = json.data;
+          if (d && d.is_connected) {
             setConnectionStatus("CONNECTED");
+            setLatencyMs(d.latency_ms || 120);
+            setLastVerified(d.last_verified || null);
             setCredentials((prev) => ({
               ...prev,
-              ucc: json.data.user_id || prev.ucc,
-              accountName: json.data.user_name || prev.accountName,
+              ucc: d.user_id || prev.ucc,
+              accountName: d.user_name || prev.accountName,
+              email: d.email || prev.email,
             }));
+          } else if (d) {
+            const rawStatus = (d.connection_status || "").toUpperCase();
+            if (rawStatus === "TOKEN_EXPIRED") {
+              setConnectionStatus("TOKEN_EXPIRED");
+            } else if (rawStatus === "AUTH_FAILED") {
+              setConnectionStatus("AUTH_FAILED");
+            } else {
+              setConnectionStatus("DISCONNECTED");
+            }
+            setLatencyMs(0);
+            setLastVerified(d.last_verified || null);
           } else {
             setConnectionStatus("DISCONNECTED");
+            setLatencyMs(0);
           }
         }
         const metaRes = await fetch("http://localhost:8000/api/v1/strategy/instrument-metadata?option_type=CE");
@@ -441,31 +463,97 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const toggleConnection = async () => {
+  const reconnectBroker = useCallback(async () => {
+    setConnectionStatus("CONNECTING");
     try {
-      const res = await fetch("http://localhost:8000/api/v1/auth/me");
+      const res = await fetch("http://localhost:8000/api/v1/broker/status");
       if (res.ok) {
         const json = await res.json();
-        if (json.connection_status === "connected") {
+        const d = json.data;
+        if (d && d.is_connected) {
           setConnectionStatus("CONNECTED");
+          setLatencyMs(d.latency_ms || 120);
+          setLastVerified(d.last_verified || null);
+          setCredentials((prev) => ({
+            ...prev,
+            ucc: d.user_id || prev.ucc,
+            accountName: d.user_name || prev.accountName,
+            email: d.email || prev.email,
+          }));
           addToast({
             type: "success",
-            title: "Broker Connected",
-            message: "Upstox v2 Live API session verified.",
+            title: "Upstox Live Verified",
+            message: `Connected as ${d.user_name || "User"} (${d.user_id || "UCC"}) • ${d.latency_ms || 120}ms latency.`,
           });
           return;
+        } else if (d) {
+          const rawStatus = (d.connection_status || "").toUpperCase();
+          if (rawStatus === "TOKEN_EXPIRED") {
+            setConnectionStatus("TOKEN_EXPIRED");
+            setLatencyMs(0);
+            addToast({
+              type: "warning",
+              title: "Token Expired",
+              message: "Upstox daily access token expired. Please click 'Login with Upstox'.",
+            });
+            return;
+          } else if (rawStatus === "AUTH_FAILED") {
+            setConnectionStatus("AUTH_FAILED");
+            setLatencyMs(0);
+            addToast({
+              type: "error",
+              title: "Authentication Failed",
+              message: json.message || "Invalid Upstox credentials or token.",
+            });
+            return;
+          }
         }
       }
       setConnectionStatus("DISCONNECTED");
+      setLatencyMs(0);
       addToast({
         type: "warning",
         title: "Upstox Disconnected",
-        message: "Authenticate with Upstox OAuth 2.0 in Settings to connect.",
+        message: "No active Upstox session. Please authenticate via OAuth in Settings.",
       });
     } catch {
       setConnectionStatus("DISCONNECTED");
+      setLatencyMs(0);
+      addToast({
+        type: "error",
+        title: "Backend Offline",
+        message: "Cannot connect to backend server at http://localhost:8000.",
+      });
     }
-  };
+  }, [addToast]);
+
+  const disconnectBroker = useCallback(async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/auth/disconnect", {
+        method: "POST",
+      });
+      if (res.ok) {
+        setConnectionStatus("DISCONNECTED");
+        setLatencyMs(0);
+        addToast({
+          type: "info",
+          title: "Broker Disconnected",
+          message: "Upstox broker session terminated successfully.",
+        });
+      }
+    } catch {
+      setConnectionStatus("DISCONNECTED");
+      setLatencyMs(0);
+    }
+  }, [addToast]);
+
+  const toggleConnection = useCallback(async () => {
+    if (connectionStatus === "CONNECTED") {
+      await disconnectBroker();
+    } else {
+      await reconnectBroker();
+    }
+  }, [connectionStatus, disconnectBroker, reconnectBroker]);
 
   const openKillSwitchModal = () => setIsKillSwitchModalOpen(true);
   const closeKillSwitchModal = () => setIsKillSwitchModalOpen(false);
@@ -895,6 +983,10 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
         connectionStatus,
         setConnectionStatus,
         toggleConnection,
+        latencyMs,
+        lastVerified,
+        disconnectBroker,
+        reconnectBroker,
         niftyPrice,
         niftyChange,
         niftyChangePct,

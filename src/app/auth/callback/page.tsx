@@ -11,9 +11,13 @@ function CallbackHandler() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [message, setMessage] = useState<string>("Exchanging single-use authorization code with Upstox...");
   const [userData, setUserData] = useState<{ userName?: string; ucc?: string }>({});
+  const hasRequestedRef = React.useRef(false);
 
   useEffect(() => {
+    if (hasRequestedRef.current) return;
+
     const code = searchParams.get("code");
+    const state = searchParams.get("state");
     const error = searchParams.get("error");
     const errorDesc = searchParams.get("error_description");
 
@@ -29,11 +33,15 @@ function CallbackHandler() {
       return;
     }
 
+    hasRequestedRef.current = true;
     const authCode = code;
 
     async function exchangeToken() {
       try {
-        const response = await fetch(`http://localhost:8000/api/v1/auth/callback?code=${encodeURIComponent(authCode)}&format=json`);
+        const stateParam = state ? `&state=${encodeURIComponent(state)}` : "";
+        const response = await fetch(
+          `http://localhost:8000/api/v1/auth/callback?code=${encodeURIComponent(authCode)}${stateParam}&format=json`
+        );
         const json = await response.json();
 
         if (response.ok && json.connection_status === "connected") {
@@ -44,9 +52,9 @@ function CallbackHandler() {
             ucc: json.data?.ucc,
           });
 
-          // Redirect to home dashboard
+          // Redirect to settings or home dashboard
           setTimeout(() => {
-            router.push("/?auth=connected");
+            router.push("/settings?auth=connected");
           }, 1500);
         } else {
           setStatus("error");

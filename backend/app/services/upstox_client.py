@@ -7,6 +7,15 @@ from backend.app.core.config import settings
 logger = logging.getLogger("algo_trader.upstox")
 
 
+class UpstoxAuthException(Exception):
+    """Raised when Upstox authentication or token validation fails."""
+
+    def __init__(self, message: str, status_code: int = 401, error_code: str = ""):
+        super().__init__(message)
+        self.status_code = status_code
+        self.error_code = error_code
+
+
 class UpstoxClient:
     """Async client for Upstox v2 / v3 Open API."""
 
@@ -42,7 +51,23 @@ class UpstoxClient:
         }
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(url, headers=headers, data=data)
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                err_msg = "OAuth token exchange rejected by Upstox"
+                err_code = "UDAPI_AUTH_ERROR"
+                try:
+                    err_json = resp.json()
+                    errors = err_json.get("errors", [])
+                    if errors and isinstance(errors, list):
+                        first = errors[0]
+                        err_msg = first.get("message") or err_msg
+                        err_code = first.get("errorCode") or first.get("error_code") or err_code
+                except Exception:
+                    pass
+                raise UpstoxAuthException(
+                    f"{err_msg} (code: {err_code})",
+                    status_code=resp.status_code,
+                    error_code=err_code,
+                )
             return resp.json()
 
     async def get_profile(self, access_token: str) -> Dict[str, Any]:
@@ -50,7 +75,23 @@ class UpstoxClient:
         url = f"{self.base_url}/user/profile"
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.get(url, headers=self._headers(access_token))
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                err_msg = "Invalid token used to access API"
+                err_code = "UDAPI100050"
+                try:
+                    err_json = resp.json()
+                    errors = err_json.get("errors", [])
+                    if errors and isinstance(errors, list):
+                        first = errors[0]
+                        err_msg = first.get("message") or err_msg
+                        err_code = first.get("errorCode") or first.get("error_code") or err_code
+                except Exception:
+                    pass
+                raise UpstoxAuthException(
+                    f"{err_msg} (code: {err_code})",
+                    status_code=resp.status_code,
+                    error_code=err_code,
+                )
             return resp.json()
 
     async def get_funds(self, access_token: str) -> Dict[str, Any]:

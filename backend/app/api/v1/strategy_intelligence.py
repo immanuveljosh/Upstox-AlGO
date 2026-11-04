@@ -65,3 +65,4 @@ async def export_strategy_intelligence_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+

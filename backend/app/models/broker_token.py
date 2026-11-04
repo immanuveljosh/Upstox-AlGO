@@ -18,5 +18,7 @@ class BrokerToken(Base, TimestampMixin):
     user_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_valid: Mapped[bool] = mapped_column(Boolean, default=False)
+    connection_status: Mapped[str] = mapped_column(String(50), default="DISCONNECTED")
+    last_error: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     last_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 

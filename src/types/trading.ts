@@ -4,7 +4,13 @@ export type OrderStatus = "PLACED" | "CLOSED" | "REJECTED";
 
 export type TradingMode = "LIVE" | "BACKTEST";
 
-export type ConnectionStatus = "CONNECTED" | "DISCONNECTED" | "RECONNECTING";
+export type ConnectionStatus =
+  | "CONNECTED"
+  | "DISCONNECTED"
+  | "CONNECTING"
+  | "AUTH_FAILED"
+  | "TOKEN_EXPIRED"
+  | "RECONNECTING";
 
 export type DirectionalSignal = "CALL" | "PUT" | "NO TRADE" | "DATA UNAVAILABLE";
 
@@ -184,6 +190,7 @@ export interface BrokerCredentials {
   connectedAt?: string;
   accountName: string;
   ucc: string;
+  email?: string;
 }
 
 export type BacktestDurationCode = "1M" | "3M" | "6M" | "1Y" | "CUSTOM";

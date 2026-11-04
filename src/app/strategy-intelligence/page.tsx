@@ -18,7 +18,6 @@ import {
 } from "@/lib/format";
 import { EquityCurveChart } from "@/components/pnl/EquityCurveChart";
 import {
-  Brain,
   TrendingUp,
   TrendingDown,
   Calendar,
@@ -183,88 +182,64 @@ export default function StrategyIntelligencePage() {
   const isProfitable = netPnl >= 0;
 
   return (
-    <div className="space-y-6 pb-12">
-      {/* Page Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-5">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
-              <Brain className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold tracking-tight text-slate-100">
-                  Strategy Intelligence Desk
-                </h1>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wider font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30 uppercase">
-                  Institutional v2.0
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Nifty Directional • Gift Nifty 1D Signal • ITM 3 Execution & Slippage Telemetry
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Mode Switcher */}
-          <div className="flex items-center bg-slate-900 border border-slate-800 p-0.5 rounded-lg text-xs font-medium">
-            <button
-              onClick={() => setMode("BACKTEST")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
-                mode === "BACKTEST"
-                  ? "bg-purple-600 text-white shadow-sm font-semibold"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Radio className="w-3.5 h-3.5" />
-              BACKTEST
-            </button>
-            <button
-              onClick={() => setMode("LIVE")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
-                mode === "LIVE"
-                  ? "bg-emerald-600 text-white shadow-sm font-semibold"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              LIVE BROKER
-            </button>
-          </div>
-
-          {/* Refresh Button */}
+    <div className="space-y-5 pb-12">
+      {/* Action Controls Toolbar */}
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {/* Mode Switcher */}
+        <div className="flex items-center bg-slate-900 border border-slate-800 p-0.5 rounded-lg text-xs font-medium">
           <button
-            onClick={() =>
-              fetchIntelligence(
-                mode,
-                selectedDuration,
-                customStartDate,
-                customEndDate
-              )
-            }
-            disabled={isLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 rounded-lg transition-colors disabled:opacity-50"
-            title="Refresh Intelligence Data"
+            onClick={() => setMode("BACKTEST")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+              mode === "BACKTEST"
+                ? "bg-purple-600 text-white shadow-sm font-semibold"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
           >
-            <RefreshCw
-              className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-purple-400" : ""}`}
-            />
-            <span className="hidden sm:inline">Refresh</span>
+            <Radio className="w-3.5 h-3.5" />
+            BACKTEST
           </button>
-
-          {/* Export CSV Button */}
           <button
-            onClick={handleExportCSV}
-            disabled={isExporting || isLoading || !data}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-900 bg-emerald-400 hover:bg-emerald-300 border border-emerald-300 rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+            onClick={() => setMode("LIVE")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+              mode === "LIVE"
+                ? "bg-emerald-600 text-white shadow-sm font-semibold"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-slate-900" />
-            Export CSV
+            <Zap className="w-3.5 h-3.5" />
+            LIVE BROKER
           </button>
         </div>
+
+        {/* Refresh Button */}
+        <button
+          onClick={() =>
+            fetchIntelligence(
+              mode,
+              selectedDuration,
+              customStartDate,
+              customEndDate
+            )
+          }
+          disabled={isLoading}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 rounded-lg transition-colors disabled:opacity-50"
+          title="Refresh Intelligence Data"
+        >
+          <RefreshCw
+            className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-purple-400" : ""}`}
+          />
+          <span className="hidden sm:inline">Refresh</span>
+        </button>
+
+        {/* Export CSV Button */}
+        <button
+          onClick={handleExportCSV}
+          disabled={isExporting || isLoading || !data}
+          className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-900 bg-emerald-400 hover:bg-emerald-300 border border-emerald-300 rounded-lg transition-colors disabled:opacity-50 shadow-sm"
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5 text-slate-900" />
+          Export CSV
+        </button>
       </div>
 
       {/* Rules Banner & Duration Filter Toolbar */}

@@ -45,7 +45,8 @@ class Settings(BaseSettings):
 
     # Trading Defaults
     DEFAULT_TRADING_MODE: str = "BACKTEST"  # BACKTEST (default) or LIVE
-    NIFTY_LOT_SIZE: int = 25  # 25 units per lot for Nifty
+    NIFTY_LOT_SIZE: int = 65  # 65 units per lot for current NIFTY contracts
+    NIFTY_FREEZE_QTY: int = 1755  # 27 lots * 65 = 1755 max qty per order
 
     model_config = SettingsConfigDict(
         env_file=".env",

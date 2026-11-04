@@ -6,6 +6,7 @@ import { NiftyChart } from "@/components/dashboard/NiftyChart";
 import { PositionCard } from "@/components/dashboard/PositionCard";
 import { ActiveStrategyCard } from "@/components/dashboard/ActiveStrategyCard";
 import { ManualOrderPanel } from "@/components/dashboard/ManualOrderPanel";
+import LotSizeCalculator from "@/components/dashboard/LotSizeCalculator";
 import { useTrading } from "@/context/TradingContext";
 import { AlertCircle, WifiOff } from "lucide-react";
 
@@ -48,6 +49,9 @@ export default function DashboardPage() {
         <ActiveStrategyCard />
         <ManualOrderPanel />
       </div>
+
+      {/* Row 4: Professional Lot Size & Quantity Calculator */}
+      <LotSizeCalculator />
     </div>
   );
 }

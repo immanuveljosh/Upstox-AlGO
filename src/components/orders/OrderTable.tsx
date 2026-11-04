@@ -110,7 +110,8 @@ export function OrderTable() {
               <th className="py-3 px-4">Order ID</th>
               <th className="py-3 px-4">Symbol</th>
               <th className="py-3 px-4">Type</th>
-              <th className="py-3 px-4 text-right">Qty (Lots)</th>
+              <th className="py-3 px-4 text-right">Lots &times; Lot Size</th>
+              <th className="py-3 px-4 text-right">Total Qty</th>
               <th className="py-3 px-4 text-right">Price</th>
               <th className="py-3 px-4 text-center">Status</th>
               <th className="py-3 px-4 text-right">P&L</th>
@@ -180,11 +181,15 @@ export function OrderTable() {
                       </span>
                     </td>
 
-                    <td className="py-3.5 px-4 text-right font-mono text-slate-200">
-                      {order.qty}{" "}
-                      <span className="text-[10px] text-slate-500">
-                        ({order.lots}L)
+                    <td className="py-3.5 px-4 text-right font-mono text-slate-300">
+                      {order.lots} {order.lots === 1 ? "Lot" : "Lots"} &times;{" "}
+                      <span className="text-emerald-400">
+                        {order.lotSize || Math.round(order.qty / Math.max(1, order.lots)) || 65}
                       </span>
+                    </td>
+
+                    <td className="py-3.5 px-4 text-right font-mono font-bold text-white">
+                      {order.qty} <span className="text-[10px] font-normal text-slate-400">Qty</span>
                     </td>
 
                     <td className="py-3.5 px-4 text-right font-mono text-slate-200">

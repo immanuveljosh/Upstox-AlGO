@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, status
@@ -31,7 +32,8 @@ async def init_database():
 
         # System config seed for Gift Nifty Directional
         res = await session.execute(select(SystemConfig).limit(1))
-        if not res.scalars().first():
+        existing_cfg = res.scalars().first()
+        if not existing_cfg:
             cfg = SystemConfig(
                 mode="BACKTEST",
                 strategy_id="strat-gift-nifty-dir",
@@ -46,10 +48,12 @@ async def init_database():
                 total_capital=200000.0,
                 stoploss_capital_pct=5.0,
                 target_capital_pct=6.0,
-                lot_size=25,
+                lot_size=65,
                 lots=2,
             )
             session.add(cfg)
+        elif existing_cfg.lot_size == 25:
+            existing_cfg.lot_size = 65
 
         # Broker token seed placeholder
         res_token = await session.execute(select(BrokerToken).limit(1))
@@ -144,13 +148,34 @@ async def init_database():
         await session.commit()
 
 
+async def background_strategy_worker():
+    """Background engine monitoring Gift Nifty Directional strategy every 4 seconds."""
+    from backend.app.services.strategy_service import strategy_service
+    while True:
+        try:
+            await asyncio.sleep(4.0)
+            async with AsyncSessionLocal() as session:
+                await strategy_service.run_monitoring_tick(session)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.debug(f"Strategy background worker note: {str(exc)}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Initializing Upstox Algo Trading Engine database schema...")
     await init_database()
+    logger.info("Starting Gift Nifty Directional automated background worker...")
+    worker_task = asyncio.create_task(background_strategy_worker())
     logger.info("Trading engine is ready to accept requests.")
     yield
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
     logger.info("Trading engine shutting down cleanly.")
 
 

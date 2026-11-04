@@ -55,16 +55,41 @@ class OrderService:
         if strike is None:
             strike = strategy_service.calculate_itm3_strike(spot_price, option_type)
 
+        # Fetch actual exchange lot size & metadata (65 units/lot for current NIFTY contracts)
+        meta = await strategy_service.fetch_instrument_metadata(
+            db=db,
+            strike=strike,
+            option_type=option_type,
+            spot_price=spot_price,
+        )
+        actual_lot_size = int(meta.get("lot_size") or config.lot_size or 65)
+        freeze_quantity = int(meta.get("freeze_quantity") or 1755)
+        instrument_key = meta.get("instrument_key", f"NSE_FO|NIFTY {strike} {option_type}")
+
         actual_lots = lots if lots and lots > 0 else config.lots
-        qty = actual_lots * config.lot_size
+        qty = actual_lots * actual_lot_size
         symbol = f"NIFTY {strike} {option_type}"
         client_order_id = f"UPX-{uuid.uuid4().hex[:8].upper()}"
+
+        est_price = price if price > 0 else (218.40 if option_type == "CE" else 204.60)
+
+        # Validate quantity against broker and NSE exchange rules
+        qty_validation = strategy_service.calculate_and_validate_quantity(
+            lots=actual_lots,
+            lot_size=actual_lot_size,
+            freeze_quantity=freeze_quantity,
+            option_premium=est_price,
+            available_capital=config.total_capital,
+            raw_quantity=qty,
+        )
+        if not qty_validation["is_valid"]:
+            raise RiskLimitBreachedException(
+                f"Order quantity validation failed: {qty_validation['message']}"
+            )
 
         # Calculate Capital Risk limits (5% SL, 6% Target of total capital)
         sl_amount = round(config.total_capital * (config.stoploss_capital_pct / 100.0), 2)
         target_amount = round(config.total_capital * (config.target_capital_pct / 100.0), 2)
-
-        est_price = price if price > 0 else (218.40 if option_type == "CE" else 204.60)
 
         # 4. Execution branching based on Mode (BACKTEST Simulation vs LIVE Upstox)
         if config.mode in ["BACKTEST", "PAPER"]:
@@ -111,7 +136,7 @@ class OrderService:
                 "validity": "DAY",
                 "price": price if order_type == "LIMIT" else 0.0,
                 "tag": "gift_nifty_dir",
-                "instrument_token": f"NSE_FO|{symbol}",
+                "instrument_token": instrument_key,
                 "order_type": order_type,
                 "transaction_type": "BUY",
                 "disclosed_quantity": 0,
@@ -193,7 +218,9 @@ class OrderService:
                 "moneyness": "ITM 3",
                 "type": db_order.option_type,
                 "lots": db_order.lots,
+                "lot_size": actual_lot_size,
                 "qty": db_order.qty,
+                "instrument_key": instrument_key,
                 "price": db_order.price,
                 "status": db_order.status,
                 "mode": db_order.mode,
@@ -235,6 +262,7 @@ class OrderService:
                 "strike": o.strike,
                 "type": o.option_type,
                 "lots": o.lots,
+                "lot_size": int(round(o.qty / o.lots)) if o.lots and o.lots > 0 else settings.NIFTY_LOT_SIZE,
                 "qty": o.qty,
                 "price": o.price,
                 "status": o.status,

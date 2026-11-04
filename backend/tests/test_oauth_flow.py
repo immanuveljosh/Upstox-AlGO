@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import pytest
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.abspath("."))
@@ -10,6 +11,7 @@ from backend.app.core.database import AsyncSessionLocal
 from backend.app.services.broker_service import broker_service
 
 
+@pytest.mark.asyncio
 async def test_oauth_url_construction():
     async with AsyncSessionLocal() as db:
         token_record = await broker_service.get_or_create_token_record(db)

@@ -3,6 +3,8 @@ from datetime import datetime, time, timedelta
 from typing import Dict, Any, Tuple, Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.models.system_config import SystemConfig
+from backend.app.models.order import Order
+from sqlalchemy import select, desc
 from backend.app.services.broker_service import broker_service
 from backend.app.services.upstox_client import upstox_client
 from backend.app.core.exceptions import (
@@ -87,6 +89,211 @@ class StrategyService:
             days_ahead = 7
         expiry_date = now + timedelta(days=days_ahead)
         return expiry_date.strftime("%Y-%m-%d")
+
+    def resolve_historical_lot_size(
+        self,
+        trade_date: str,
+        contract_metadata: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """
+        Dynamically resolves the actual exchange lot size for a contract on a given date.
+        Never hardcodes a single static lot size across historical eras:
+        1. If explicit contract metadata from Upstox API includes 'lot_size', use it directly.
+        2. Otherwise resolve dynamically according to NSE NIFTY 50 index derivative lot size revisions:
+           - Prior to 2024-04-26: 50 units
+           - 2024-04-26 to 2024-11-19: 25 units
+           - 2024-11-20 to 2025-12-31: 75 units
+           - 2026-01-01 onwards (current NIFTY contracts): 65 units
+        """
+        if contract_metadata and contract_metadata.get("lot_size"):
+            lot_val = int(contract_metadata["lot_size"])
+            if lot_val > 0:
+                return lot_val
+
+        clean_date = str(trade_date)[:10]
+        if clean_date < "2024-04-26":
+            return 50
+        elif clean_date < "2024-11-20":
+            return 25
+        elif clean_date < "2026-01-01":
+            return 75
+        else:
+            return 65
+
+    async def fetch_instrument_metadata(
+        self,
+        db: AsyncSession,
+        strike: Optional[int] = None,
+        option_type: str = "CE",
+        expiry_date: Optional[str] = None,
+        spot_price: float = 24878.50,
+    ) -> Dict[str, Any]:
+        """
+        Fetches actual NIFTY option contract metadata (including lot_size=65, freeze_quantity=1755,
+        instrument_key, and trading_symbol) from Upstox v2 /option/contract endpoint.
+        """
+        opt_type = option_type.upper()
+        if strike is None:
+            strike = self.calculate_itm3_strike(spot_price, opt_type)
+
+        token_record = await broker_service.get_or_create_token_record(db)
+        now_ts = datetime.now().timestamp()
+
+        # Use 5-minute in-memory cache for contract chain to avoid rate limiting
+        contracts: List[Dict[str, Any]] = []
+        cache_attr = getattr(self, "_contracts_cache", None)
+        cache_time = getattr(self, "_contracts_cache_time", 0.0)
+
+        if cache_attr and (now_ts - cache_time) < 300:
+            contracts = cache_attr
+        elif token_record and token_record.access_token:
+            try:
+                contracts = await upstox_client.get_option_contracts(
+                    access_token=token_record.access_token,
+                    instrument_key="NSE_INDEX|Nifty 50",
+                    expiry_date=expiry_date,
+                )
+                if contracts:
+                    self._contracts_cache = contracts
+                    self._contracts_cache_time = now_ts
+            except Exception as exc:
+                logger.warning(f"Upstox option contract metadata query note: {str(exc)}")
+
+        if contracts:
+            expiries = sorted(list({c.get("expiry", "") for c in contracts if c.get("expiry")}))
+            target_expiry = expiry_date if (expiry_date and expiry_date in expiries) else (expiries[0] if expiries else self.get_upcoming_nifty_expiry())
+
+            matching = [
+                c for c in contracts
+                if c.get("expiry") == target_expiry
+                and int(float(c.get("strike_price", 0))) == int(strike)
+                and str(c.get("instrument_type", "")).upper() == opt_type
+            ]
+            if not matching:
+                matching = [
+                    c for c in contracts
+                    if int(float(c.get("strike_price", 0))) == int(strike)
+                    and str(c.get("instrument_type", "")).upper() == opt_type
+                ]
+            if not matching:
+                matching = [c for c in contracts if c.get("expiry") == target_expiry]
+
+            if matching:
+                c = matching[0]
+                lot_size = int(c.get("lot_size") or 65)
+                freeze_qty = int(float(c.get("freeze_quantity") or 1755))
+                max_lots = freeze_qty // lot_size if lot_size > 0 else 27
+
+                # Sync system config if different
+                config = await broker_service.get_or_create_config(db)
+                if config.lot_size != lot_size:
+                    config.lot_size = lot_size
+                    await db.commit()
+
+                return {
+                    "instrument_key": c.get("instrument_key", f"NSE_FO|NIFTY{strike}{opt_type}"),
+                    "trading_symbol": c.get("trading_symbol", f"NIFTY {strike} {opt_type}"),
+                    "name": c.get("name", "NIFTY"),
+                    "exchange": c.get("exchange", "NSE"),
+                    "segment": c.get("segment", "NSE_FO"),
+                    "expiry": c.get("expiry", target_expiry),
+                    "strike_price": float(c.get("strike_price", strike)),
+                    "option_type": opt_type,
+                    "lot_size": lot_size,
+                    "minimum_lot": int(c.get("minimum_lot") or lot_size),
+                    "freeze_quantity": freeze_qty,
+                    "max_lots_per_order": max_lots,
+                    "tick_size": float(c.get("tick_size") or 0.05),
+                    "source": "UPSTOX_API",
+                }
+
+        # Fallback to current NIFTY exchange specification (65 units/lot, 1755 freeze qty)
+        fallback_expiry = expiry_date or self.get_upcoming_nifty_expiry()
+        return {
+            "instrument_key": f"NSE_FO|NIFTY_{strike}_{opt_type}",
+            "trading_symbol": f"NIFTY {strike} {opt_type}",
+            "name": "NIFTY",
+            "exchange": "NSE",
+            "segment": "NSE_FO",
+            "expiry": fallback_expiry,
+            "strike_price": float(strike),
+            "option_type": opt_type,
+            "lot_size": 65,
+            "minimum_lot": 65,
+            "freeze_quantity": 1755,
+            "max_lots_per_order": 27,
+            "tick_size": 0.05,
+            "source": "EXCHANGE_SPEC_65",
+        }
+
+    def calculate_and_validate_quantity(
+        self,
+        lots: int,
+        lot_size: int = 65,
+        freeze_quantity: int = 1755,
+        option_premium: float = 218.40,
+        available_capital: float = 200000.0,
+        raw_quantity: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Calculates Total Quantity = Number of Lots × Actual Lot Size
+        and validates against broker & NSE exchange rules.
+        """
+        errors: List[str] = []
+
+        if lot_size <= 0:
+            errors.append(f"Invalid exchange lot size ({lot_size}). Lot size must be positive.")
+            lot_size = 65
+
+        if lots < 1:
+            errors.append(f"Invalid lot count ({lots}). Minimum 1 lot ({lot_size} quantity) is required.")
+
+        expected_quantity = lots * lot_size
+        total_quantity = raw_quantity if raw_quantity is not None else expected_quantity
+
+        if total_quantity <= 0:
+            errors.append(f"Total quantity ({total_quantity}) must be greater than 0.")
+
+        if total_quantity % lot_size != 0:
+            errors.append(
+                f"Quantity ({total_quantity}) is not a valid multiple of the NIFTY exchange lot size ({lot_size})."
+            )
+
+        if raw_quantity is not None and raw_quantity != expected_quantity:
+            errors.append(
+                f"Quantity mismatch: {lots} lots × {lot_size} lot size = {expected_quantity}, but got {raw_quantity}."
+            )
+
+        max_lots = freeze_quantity // lot_size if lot_size > 0 else 27
+        if total_quantity > freeze_quantity:
+            errors.append(
+                f"Total quantity ({total_quantity}) exceeds NSE single-order freeze limit of {freeze_quantity} ({max_lots} lots max)."
+            )
+
+        estimated_value = round(max(0, total_quantity) * option_premium, 2)
+        within_capital = estimated_value <= available_capital
+        if not within_capital:
+            errors.append(
+                f"Estimated order value (₹{estimated_value:,.2f}) exceeds available strategy capital (₹{available_capital:,.2f})."
+            )
+
+        is_valid = len(errors) == 0
+        return {
+            "is_valid": is_valid,
+            "lots": lots,
+            "lot_size": lot_size,
+            "total_quantity": total_quantity,
+            "freeze_quantity": freeze_quantity,
+            "max_lots_per_order": max_lots,
+            "estimated_order_value": estimated_value,
+            "within_capital_limit": within_capital,
+            "errors": errors,
+            "message": (
+                f"Valid order quantity: {lots} Lot{'s' if lots != 1 else ''} × {lot_size} = {total_quantity} Quantity"
+                if is_valid
+                else "; ".join(errors)
+            ),
+        }
 
     async def get_strategy_config(self, db: AsyncSession) -> Dict[str, Any]:
         config = await broker_service.get_or_create_config(db)
@@ -211,12 +418,17 @@ class StrategyService:
 
         window_status_label = "OPEN" if in_window else ("PRE_MARKET" if "Pre-Market" in window_msg else "CLOSED")
 
+        signal_display = "CALL" if signal == "BUY_CALL" else ("PUT" if signal == "BUY_PUT" else "NO SIGNAL")
+        lot_size = config.lot_size or 65
+        qty = (config.lots or 1) * lot_size
+
         return {
             "connection_status": "connected",
             "data": {
                 "timestamp": now_ist,
                 "gift_nifty_change": gift_nifty_change,
                 "signal": signal,
+                "signal_display": signal_display,
                 "can_trade_now": can_trade,
                 "reason": reason,
                 "underlying_spot": spot_price,
@@ -224,6 +436,8 @@ class StrategyService:
                 "selected_option_type": selected_type,
                 "selected_symbol": symbol,
                 "option_selection_rule": "ITM 3 (In-The-Money 3rd Strike)",
+                "lot_size": lot_size,
+                "quantity": qty,
                 "entry_price": entry_price,
                 "total_capital": config.total_capital,
                 "stoploss_amount": sl_amt,
@@ -282,6 +496,156 @@ class StrategyService:
             "message": "Strategy stopped. Automated execution halted.",
         }
 
+    async def run_monitoring_tick(
+        self,
+        db: AsyncSession,
+        override_time: Optional[time] = None,
+        override_change: Optional[float] = None,
+        override_spot: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Executes one automated monitoring and risk-management tick for Gift Nifty Directional strategy:
+        1. Date Rollover: Resets daily trade counter on a new trading day.
+        2. Position Risk Management: Checks open positions against Capital SL (-5%) and Capital Target (+6%)
+           including brokerage & charges, and executes auto square-off at 15:15 IST.
+        3. Signal & Order Execution: Between 09:15:00 and 09:17:00 AM IST, evaluates 1-Day Gift Nifty change:
+           - >= +80 pts -> Generates BUY CALL (3rd ITM CE) and places order immediately.
+           - <= -80 pts -> Generates BUY PUT (3rd ITM PE) and places order immediately.
+           - Enforces strict 1-trade-per-day limit and duplicate-order prevention.
+        """
+        config = await broker_service.get_or_create_config(db)
+        today_date = datetime.now(IST).strftime("%Y-%m-%d")
+        now_time = override_time or datetime.now(IST).time()
+
+        # 1. Day Rollover check
+        if config.last_trade_date != today_date:
+            config.trades_executed_today = 0
+            config.last_trade_date = today_date
+            await db.commit()
+            await db.refresh(config)
+
+        actions_taken: List[str] = []
+
+        # 2. Reconcile Open Positions against Capital SL (5%) and Target (6%)
+        stmt_open = select(Order).where(Order.status == "PLACED").order_by(desc(Order.placed_at))
+        res_open = await db.execute(stmt_open)
+        open_orders = res_open.scalars().all()
+
+        sl_capital_limit = round(config.total_capital * (config.stoploss_capital_pct / 100.0), 2)
+        tgt_capital_limit = round(config.total_capital * (config.target_capital_pct / 100.0), 2)
+
+        for open_order in open_orders:
+            # Determine current LTP
+            current_ltp = open_order.price
+            if config.mode == "LIVE":
+                try:
+                    token_record = await broker_service.get_or_create_token_record(db)
+                    q = await upstox_client.get_market_quote(token_record.access_token, open_order.symbol)
+                    q_item = list(q.get("data", {}).values())[0] if q.get("data") else None
+                    if q_item and q_item.get("last_price"):
+                        current_ltp = float(q_item["last_price"])
+                except Exception as exc:
+                    logger.debug(f"Live quote fetch note during position check: {str(exc)}")
+
+            # Brokerage and statutory charges per trade
+            charges = round(40.0 + 0.0005 * (open_order.price + current_ltp) * open_order.qty, 2)
+            gross_pnl = round((current_ltp - open_order.price) * open_order.qty, 2)
+            net_pnl = round(gross_pnl - charges, 2)
+
+            exit_reason: Optional[str] = None
+            if net_pnl <= -sl_capital_limit:
+                exit_reason = f"STOP LOSS HIT (-5% Capital: ₹{net_pnl:,.2f} <= -₹{sl_capital_limit:,.2f})"
+            elif net_pnl >= tgt_capital_limit:
+                exit_reason = f"TARGET REACHED (+6% Capital: ₹{net_pnl:,.2f} >= +₹{tgt_capital_limit:,.2f})"
+            elif now_time >= time(15, 15, 0):
+                exit_reason = f"AUTO SQUARE-OFF (15:15 IST Market Close Triggered)"
+
+            if exit_reason:
+                # Execute exit order
+                if config.mode == "LIVE":
+                    try:
+                        token_record = await broker_service.get_or_create_token_record(db)
+                        exit_payload = {
+                            "quantity": open_order.qty,
+                            "product": "I",
+                            "validity": "DAY",
+                            "price": 0.0,
+                            "tag": "sl_tgt_exit",
+                            "instrument_token": f"NSE_FO|{open_order.symbol}",
+                            "order_type": "MARKET",
+                            "transaction_type": "SELL",
+                            "disclosed_quantity": 0,
+                            "trigger_price": 0.0,
+                            "is_amo": False,
+                        }
+                        await upstox_client.place_order(token_record.access_token, exit_payload)
+                    except Exception as err:
+                        logger.error(f"Live position square-off API note: {str(err)}")
+
+                open_order.status = "CLOSED"
+                open_order.exit_price = current_ltp
+                open_order.exit_time = datetime.utcnow()
+                open_order.realized_pnl = net_pnl
+                open_order.reject_reason = exit_reason
+                await db.commit()
+                actions_taken.append(f"Position {open_order.symbol} closed: {exit_reason}")
+                log_critical_action("POSITION_AUTO_EXIT", {
+                    "symbol": open_order.symbol,
+                    "net_pnl": net_pnl,
+                    "reason": exit_reason,
+                    "mode": config.mode,
+                })
+
+        # 3. Strategy Entry Scanner (only when RUNNING and no active open position)
+        if config.strategy_status == "RUNNING" and len(open_orders) == 0:
+            in_window, window_msg = self.is_within_trading_window(now_time)
+
+            if in_window and config.trades_executed_today < config.max_trades_per_day:
+                # Prevent duplicate entries for the current trading day
+                stmt_today = select(Order).where(
+                    Order.placed_at >= datetime.combine(datetime.now(IST).date(), time.min)
+                )
+                existing_today = (await db.execute(stmt_today)).scalars().first()
+
+                if not existing_today:
+                    # Evaluate signal
+                    spot = override_spot or 24878.50
+                    eval_res = await self.evaluate_signal(
+                        db=db,
+                        gift_nifty_change=override_change,
+                        current_time=now_time,
+                        spot_price=spot,
+                    )
+                    data = eval_res.get("data", {})
+                    signal = data.get("signal")
+                    selected_type = data.get("selected_option_type")
+
+                    if data.get("can_trade_now") and signal in ["BUY_CALL", "BUY_PUT"] and selected_type:
+                        from backend.app.services.order_service import order_service
+                        order_res = await order_service.place_directional_order(
+                            db=db,
+                            option_type=selected_type,
+                            lots=config.lots,
+                            strike=data.get("selected_option_strike"),
+                            order_type="MARKET",
+                        )
+                        actions_taken.append(
+                            f"Auto-executed {signal} ({data.get('selected_symbol')}) at {now_time.strftime('%H:%M:%S IST')}."
+                        )
+
+        return {
+            "connection_status": "connected",
+            "data": {
+                "timestamp": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST"),
+                "strategy_status": config.strategy_status,
+                "mode": config.mode,
+                "trades_executed_today": config.trades_executed_today,
+                "open_positions_count": len(open_orders),
+                "actions_taken": actions_taken,
+            },
+            "message": "Strategy monitoring cycle completed.",
+        }
+
     async def toggle_strategy(self, db: AsyncSession) -> Dict[str, Any]:
         config = await broker_service.get_or_create_config(db)
         if config.strategy_status == "STOPPED":
@@ -323,10 +687,10 @@ class StrategyService:
 
     async def switch_mode(self, db: AsyncSession, new_mode: str, confirm_live: bool = False) -> Dict[str, Any]:
         """
-        Switch between BACKTEST (default simulation) and LIVE modes.
-        Live mode requires explicit user confirmation.
+        Switch between BACKTEST / PAPER (simulation) and LIVE modes.
+        Live mode requires explicit user confirmation and active broker session.
         """
-        valid_modes = ["LIVE", "BACKTEST"]
+        valid_modes = ["LIVE", "BACKTEST", "PAPER"]
         if new_mode not in valid_modes:
             new_mode = "BACKTEST"
 
@@ -351,7 +715,8 @@ class StrategyService:
         log_critical_action("MODE_SWITCH", {"mode": new_mode})
         mode_messages = {
             "LIVE": "Live Trading mode active: real Upstox OMS order routing enabled.",
-            "BACKTEST": "Backtest Simulation mode active: zero capital risk. Historical testing and order simulation active.",
+            "BACKTEST": "Backtest Simulation mode active: zero capital risk. Historical testing active.",
+            "PAPER": "Paper Trading mode active: simulated orders kept completely isolated from live OMS.",
         }
         return {
             "connection_status": "connected",
@@ -441,6 +806,10 @@ class StrategyService:
                 curr_close = float(candles[i][4])
                 date_str = str(candles[i][0])[:10]
 
+                # Dynamically resolve actual exchange lot size for the historical date (never hardcoded)
+                day_lot_size = self.resolve_historical_lot_size(date_str)
+                day_qty = trade_lots * day_lot_size
+
                 # Overnight gap = Gift Nifty 1-Day change leading into 09:15 open
                 gap = round(curr_open - prev_close, 2)
 
@@ -451,24 +820,24 @@ class StrategyService:
                     strike = atm - 150
                     entry_est = 210.0
 
-                    max_gain_rs = (curr_high - curr_open) * delta * qty
-                    max_loss_rs = (curr_open - curr_low) * delta * qty
-                    close_gain_rs = (curr_close - curr_open) * delta * qty
+                    max_gain_rs = (curr_high - curr_open) * delta * day_qty
+                    max_loss_rs = (curr_open - curr_low) * delta * day_qty
+                    close_gain_rs = (curr_close - curr_open) * delta * day_qty
 
                     if max_gain_rs >= target_amount and max_loss_rs < sl_amount:
                         pnl = target_amount - charges_per_trade
                         res = "TARGET"
                         target_hits += 1
-                        exit_price = round(entry_est + (target_amount / qty), 2)
+                        exit_price = round(entry_est + (target_amount / day_qty), 2)
                     elif max_loss_rs >= sl_amount:
                         pnl = -sl_amount - charges_per_trade
                         res = "SL"
                         sl_hits += 1
-                        exit_price = round(max(0, entry_est - (sl_amount / qty)), 2)
+                        exit_price = round(max(0, entry_est - (sl_amount / day_qty)), 2)
                     else:
                         pnl = close_gain_rs - charges_per_trade
                         res = "SQUARE_OFF"
-                        exit_price = round(entry_est + (close_gain_rs / qty), 2)
+                        exit_price = round(entry_est + (close_gain_rs / day_qty), 2)
 
                     current_equity += pnl
                     trades.append({
@@ -476,6 +845,9 @@ class StrategyService:
                         "symbol": f"NIFTY {strike} CE",
                         "type": "CE",
                         "strike": strike,
+                        "lot_size": day_lot_size,
+                        "lots": trade_lots,
+                        "quantity": day_qty,
                         "entry_price": entry_est,
                         "exit_price": exit_price,
                         "gap": gap,
@@ -490,24 +862,24 @@ class StrategyService:
                     strike = atm + 150
                     entry_est = 205.0
 
-                    max_gain_rs = (curr_open - curr_low) * delta * qty
-                    max_loss_rs = (curr_high - curr_open) * delta * qty
-                    close_gain_rs = (curr_open - curr_close) * delta * qty
+                    max_gain_rs = (curr_open - curr_low) * delta * day_qty
+                    max_loss_rs = (curr_high - curr_open) * delta * day_qty
+                    close_gain_rs = (curr_open - curr_close) * delta * day_qty
 
                     if max_gain_rs >= target_amount and max_loss_rs < sl_amount:
                         pnl = target_amount - charges_per_trade
                         res = "TARGET"
                         target_hits += 1
-                        exit_price = round(entry_est + (target_amount / qty), 2)
+                        exit_price = round(entry_est + (target_amount / day_qty), 2)
                     elif max_loss_rs >= sl_amount:
                         pnl = -sl_amount - charges_per_trade
                         res = "SL"
                         sl_hits += 1
-                        exit_price = round(max(0, entry_est - (sl_amount / qty)), 2)
+                        exit_price = round(max(0, entry_est - (sl_amount / day_qty)), 2)
                     else:
                         pnl = close_gain_rs - charges_per_trade
                         res = "SQUARE_OFF"
-                        exit_price = round(entry_est + (close_gain_rs / qty), 2)
+                        exit_price = round(entry_est + (close_gain_rs / day_qty), 2)
 
                     current_equity += pnl
                     trades.append({
@@ -515,6 +887,9 @@ class StrategyService:
                         "symbol": f"NIFTY {strike} PE",
                         "type": "PE",
                         "strike": strike,
+                        "lot_size": day_lot_size,
+                        "lots": trade_lots,
+                        "quantity": day_qty,
                         "entry_price": entry_est,
                         "exit_price": exit_price,
                         "gap": gap,
@@ -571,6 +946,7 @@ class StrategyService:
                     "avg_profit_per_win": avg_profit_win,
                     "avg_loss_per_loss": avg_loss_loss,
                     "capital": total_capital,
+                    "lot_size": lot_size,
                     "lots": trade_lots,
                     "total_qty": qty,
                     "recent_trades": trades[-10:],
@@ -601,6 +977,7 @@ class StrategyService:
                     "avg_profit_per_win": 0.0,
                     "avg_loss_per_loss": 0.0,
                     "capital": total_capital,
+                    "lot_size": lot_size,
                     "lots": trade_lots,
                     "total_qty": qty,
                     "recent_trades": [],

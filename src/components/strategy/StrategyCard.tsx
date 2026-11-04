@@ -40,6 +40,10 @@ export function StrategyCard() {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    setLotCount(strategy.lots);
+  }, [strategy.lots]);
+
   const isConnected = connectionStatus === "CONNECTED";
   const isRunning = strategy.status === "RUNNING";
   const isBullish = strategy.signal === "BULLISH";
@@ -47,7 +51,7 @@ export function StrategyCard() {
   const isNoTrade = strategy.signal === "NO_TRADE";
 
   const handleIncrement = () => {
-    const next = Math.min(20, lotCount + 1);
+    const next = Math.min(27, lotCount + 1);
     setLotCount(next);
     updateStrategyLots(next);
   };
@@ -56,6 +60,14 @@ export function StrategyCard() {
     const next = Math.max(1, lotCount - 1);
     setLotCount(next);
     updateStrategyLots(next);
+  };
+
+  const handleLotInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const parsed = parseInt(e.target.value, 10);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= 27) {
+      setLotCount(parsed);
+      updateStrategyLots(parsed);
+    }
   };
 
   const handleCapitalSubmit = (e: React.FormEvent) => {
@@ -239,39 +251,46 @@ export function StrategyCard() {
           </div>
         </div>
 
-        {/* Capital Management */}
+        {/* Capital & Lot Size Management */}
         <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5">
               <span className="font-semibold uppercase tracking-wider text-[11px]">
-                Strategy Capital
+                Lot Size & Total Qty
               </span>
               <Shield className="w-4 h-4 text-emerald-400" />
             </div>
-            <div suppressHydrationWarning className="text-lg font-bold font-mono text-white mt-1">
-              {formatINRInteger(strategy.totalCapital)}
+            <div className="text-lg font-bold font-mono text-emerald-400 mt-1">
+              {strategy.lots} Lots &times; {strategy.lotSize} = {strategy.lots * strategy.lotSize} Qty
             </div>
-            <div className="text-xs text-slate-400 font-mono mt-0.5">
-              {strategy.lots} Lots &bull; {strategy.lots * strategy.lotSize} Quantity
+            <div suppressHydrationWarning className="text-xs text-slate-300 font-mono mt-0.5">
+              Capital: {formatINRInteger(strategy.totalCapital)} &bull; 1 Lot = {strategy.lotSize} units
             </div>
           </div>
           <div className="text-[11px] text-slate-500 mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between">
-            <span>Lot Multiplier:</span>
+            <span>Number of Lots:</span>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={handleDecrement}
                 disabled={lotCount <= 1}
-                className="w-5 h-5 rounded bg-slate-800 text-slate-300 disabled:opacity-30 flex items-center justify-center cursor-pointer"
+                className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-30 flex items-center justify-center cursor-pointer"
               >
                 -
               </button>
-              <span className="font-mono font-bold text-white text-xs">{lotCount}</span>
+              <input
+                type="number"
+                min={1}
+                max={27}
+                value={lotCount}
+                onChange={handleLotInputChange}
+                className="w-12 h-6 bg-slate-950 border border-slate-700 rounded text-center font-mono font-bold text-white text-xs focus:outline-none focus:border-emerald-500"
+              />
               <button
                 type="button"
                 onClick={handleIncrement}
-                disabled={lotCount >= 20}
-                className="w-5 h-5 rounded bg-slate-800 text-slate-300 disabled:opacity-30 flex items-center justify-center cursor-pointer"
+                disabled={lotCount >= 27}
+                className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 disabled:opacity-30 flex items-center justify-center cursor-pointer"
               >
                 +
               </button>

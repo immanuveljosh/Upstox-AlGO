@@ -24,9 +24,9 @@ class StrategyConfigData(BaseModel):
     stoploss_amount: float = 10000.0
     target_capital_pct: float = 6.0
     target_amount: float = 12000.0
-    lot_size: int = 25
-    lots: int = 2
-    total_qty: int = 50
+    lot_size: int = 65
+    lots: int = 1
+    total_qty: int = 65
     product: str = "MIS / I (Intraday)"
 
 
@@ -40,7 +40,8 @@ class StrategySettingsUpdate(BaseModel):
 class SignalEvaluationResult(BaseModel):
     timestamp: str
     gift_nifty_change: float
-    signal: str  # BULLISH / BUY_CALL, BEARISH / BUY_PUT, NO_TRADE
+    signal: str  # BUY_CALL, BUY_PUT, NO_TRADE
+    signal_display: Optional[str] = "NO SIGNAL"  # CALL, PUT, NO SIGNAL
     can_trade_now: bool
     reason: str
     underlying_spot: float
@@ -48,6 +49,8 @@ class SignalEvaluationResult(BaseModel):
     selected_option_type: Optional[str] = None
     selected_symbol: Optional[str] = None
     option_selection_rule: str = "ITM 3 (In-The-Money 3rd Strike)"
+    lot_size: int = 65
+    quantity: int = 65
     entry_price: Optional[float] = None
     total_capital: float = 200000.0
     stoploss_amount: float = 10000.0
@@ -93,7 +96,56 @@ class BacktestResultData(BaseModel):
     avg_profit_per_win: float
     avg_loss_per_loss: float
     capital: float
+    lot_size: int = 65
     lots: int
     total_qty: int
     recent_trades: List[Dict[str, Any]] = []
     message: Optional[str] = None
+
+
+class InstrumentMetadata(BaseModel):
+    instrument_key: str
+    trading_symbol: str
+    name: str = "NIFTY"
+    exchange: str = "NSE"
+    segment: str = "NSE_FO"
+    expiry: str
+    strike_price: float
+    option_type: Literal["CE", "PE"]
+    lot_size: int = 65
+    minimum_lot: int = 65
+    freeze_quantity: int = 1755
+    max_lots_per_order: int = 27
+    tick_size: float = 0.05
+    source: str = "UPSTOX_API"
+
+
+class QuantityCalculationRequest(BaseModel):
+    lots: int = Field(..., ge=0, description="Number of lots")
+    lot_size: Optional[int] = Field(None, description="Actual exchange lot size (defaults to Upstox metadata / 65)")
+    strike: Optional[int] = None
+    option_type: Literal["CE", "PE"] = "CE"
+    option_premium: float = 218.40
+    available_capital: Optional[float] = None
+    instrument: Optional[str] = "NIFTY"
+    raw_quantity: Optional[int] = None
+
+
+class QuantityCalculationResponse(BaseModel):
+    is_valid: bool
+    instrument: str = "NIFTY"
+    instrument_key: str = "NSE_FO|40013"
+    trading_symbol: Optional[str] = None
+    expiry: str = "2026-11-09"
+    option_type: str = "CE"
+    strike: int = 24750
+    lots: int
+    lot_size: int = 65
+    total_quantity: int
+    freeze_quantity: int = 1755
+    max_lots_per_order: int = 27
+    estimated_order_value: float = 0.0
+    within_capital_limit: bool = True
+    metadata_source: str = "UPSTOX_API"
+    errors: List[str] = []
+    message: str = "Valid order quantity"

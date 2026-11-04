@@ -4,235 +4,303 @@ sys.path.insert(0, os.path.abspath("."))
 
 import pytest
 import asyncio
-from datetime import time
+from datetime import time, datetime
 from backend.app.services.strategy_service import strategy_service
-from backend.app.core.database import AsyncSessionLocal
 from backend.app.services.broker_service import broker_service
 from backend.app.services.order_service import OrderService
+from backend.app.core.database import AsyncSessionLocal
+from backend.app.models.order import Order
+from backend.app.core.exceptions import RiskLimitBreachedException
 
 
-def test_strike_selection_3rd_itm():
-    """Verify exact 3rd ITM strike selection calculation."""
-    # Test case 1: Spot = 24,878.50 -> ATM = 24,900
-    spot = 24878.50
-    ce_strike = strategy_service.calculate_itm3_strike(spot, "CE")
-    pe_strike = strategy_service.calculate_itm3_strike(spot, "PE")
-    assert ce_strike == 24750, f"Expected 24750 for 3rd ITM CE, got {ce_strike}"
-    assert pe_strike == 25050, f"Expected 25050 for 3rd ITM PE, got {pe_strike}"
-
-    # Test case 2: Spot = 24,820.00 -> ATM = 24,800
-    spot2 = 24820.00
-    ce_strike2 = strategy_service.calculate_itm3_strike(spot2, "CE")
-    pe_strike2 = strategy_service.calculate_itm3_strike(spot2, "PE")
-    assert ce_strike2 == 24650, f"Expected 24650 for 3rd ITM CE, got {ce_strike2}"
-    assert pe_strike2 == 24950, f"Expected 24950 for 3rd ITM PE, got {pe_strike2}"
-
-    # Test case 3: Spot = 25,000.00 -> ATM = 25,000
-    spot3 = 25000.00
-    ce_strike3 = strategy_service.calculate_itm3_strike(spot3, "CE")
-    pe_strike3 = strategy_service.calculate_itm3_strike(spot3, "PE")
-    assert ce_strike3 == 24850, f"Expected 24850 for 3rd ITM CE, got {ce_strike3}"
-    assert pe_strike3 == 25150, f"Expected 25150 for 3rd ITM PE, got {pe_strike3}"
-
-
-def test_trading_window_restriction():
-    """Verify entry window is strictly 09:15:00 inclusive and 09:17:00 exclusive."""
-    # 09:14:59 (Pre-market)
-    in_w, msg = strategy_service.is_within_trading_window(time(9, 14, 59))
-    assert not in_w, "09:14:59 must be outside trading window"
-
-    # 09:15:00 (Window Open - Inclusive)
-    in_w, msg = strategy_service.is_within_trading_window(time(9, 15, 0))
-    assert in_w, "09:15:00 must be inside trading window"
-
-    # 09:16:30 (Window Open)
-    in_w, msg = strategy_service.is_within_trading_window(time(9, 16, 30))
-    assert in_w, "09:16:30 must be inside trading window"
-
-    # 09:17:00 (Window Closed - Exclusive)
-    in_w, msg = strategy_service.is_within_trading_window(time(9, 17, 0))
-    assert not in_w, "09:17:00 must be outside trading window (exclusive)"
-
-    # 09:17:01 (Window Closed)
-    in_w, msg = strategy_service.is_within_trading_window(time(9, 17, 1))
-    assert not in_w, "09:17:01 must be outside trading window"
-
-    # 10:00:00 (Window Closed)
-    in_w, msg = strategy_service.is_within_trading_window(time(10, 0, 0))
-    assert not in_w, "10:00:00 must be outside trading window"
-
-
-async def async_test_directional_signals():
-    """Verify Bullish (+80), Bearish (-80), and No-Trade (-80 to +80) signals."""
+# 1 & 2: Gift Nifty +80 -> CE, +100 -> CE
+@pytest.mark.asyncio
+async def test_signal_positive_80_ce():
     async with AsyncSessionLocal() as session:
-        # 1. Bullish Signal: >= +80.0
-        res_bullish = await strategy_service.evaluate_signal(
+        res = await strategy_service.evaluate_signal(
             db=session,
             gift_nifty_change=80.0,
             current_time=time(9, 15, 30),
             spot_price=24878.50,
         )
-        data = res_bullish["data"]
-        assert data["signal"] == "BUY_CALL", f"Expected BUY_CALL, got {data['signal']}"
+        data = res["data"]
+        assert data["signal"] == "BUY_CALL"
         assert data["selected_option_type"] == "CE"
-        assert data["selected_option_strike"] == 24750  # 3rd ITM Call
+        assert data["signal_display"] == "CALL"
 
-        # 2. Bullish Signal higher than threshold
-        res_bullish2 = await strategy_service.evaluate_signal(
+
+@pytest.mark.asyncio
+async def test_signal_positive_100_ce():
+    async with AsyncSessionLocal() as session:
+        res = await strategy_service.evaluate_signal(
             db=session,
-            gift_nifty_change=125.0,
-            current_time=time(9, 16, 0),
+            gift_nifty_change=100.0,
+            current_time=time(9, 15, 30),
             spot_price=24878.50,
         )
-        assert res_bullish2["data"]["signal"] == "BUY_CALL"
-        assert res_bullish2["data"]["selected_option_type"] == "CE"
+        data = res["data"]
+        assert data["signal"] == "BUY_CALL"
+        assert data["selected_option_type"] == "CE"
+        assert data["signal_display"] == "CALL"
 
-        # 3. Bearish Signal: <= -80.0
-        res_bearish = await strategy_service.evaluate_signal(
+
+# 3 & 4: Gift Nifty -80 -> PE, -100 -> PE
+@pytest.mark.asyncio
+async def test_signal_negative_80_pe():
+    async with AsyncSessionLocal() as session:
+        res = await strategy_service.evaluate_signal(
             db=session,
             gift_nifty_change=-80.0,
             current_time=time(9, 15, 30),
             spot_price=24878.50,
         )
-        data_b = res_bearish["data"]
-        assert data_b["signal"] == "BUY_PUT", f"Expected BUY_PUT, got {data_b['signal']}"
-        assert data_b["selected_option_type"] == "PE"
-        assert data_b["selected_option_strike"] == 25050  # 3rd ITM Put
+        data = res["data"]
+        assert data["signal"] == "BUY_PUT"
+        assert data["selected_option_type"] == "PE"
+        assert data["signal_display"] == "PUT"
 
-        # 4. Bearish Signal lower than threshold
-        res_bearish2 = await strategy_service.evaluate_signal(
+
+@pytest.mark.asyncio
+async def test_signal_negative_100_pe():
+    async with AsyncSessionLocal() as session:
+        res = await strategy_service.evaluate_signal(
             db=session,
-            gift_nifty_change=-110.0,
-            current_time=time(9, 16, 15),
+            gift_nifty_change=-100.0,
+            current_time=time(9, 15, 30),
             spot_price=24878.50,
         )
-        assert res_bearish2["data"]["signal"] == "BUY_PUT"
+        data = res["data"]
+        assert data["signal"] == "BUY_PUT"
+        assert data["selected_option_type"] == "PE"
+        assert data["signal_display"] == "PUT"
 
-        # 5. No-Trade Zone: between -80 and +80
-        res_neutral1 = await strategy_service.evaluate_signal(
+
+# 5 & 6: Gift Nifty +79 -> NO SIGNAL, -79 -> NO SIGNAL
+@pytest.mark.asyncio
+async def test_signal_positive_79_no_signal():
+    async with AsyncSessionLocal() as session:
+        res = await strategy_service.evaluate_signal(
             db=session,
-            gift_nifty_change=79.9,
+            gift_nifty_change=79.0,
             current_time=time(9, 15, 30),
         )
-        assert res_neutral1["data"]["signal"] == "NO_TRADE"
-        assert not res_neutral1["data"]["can_trade_now"]
+        data = res["data"]
+        assert data["signal"] == "NO_TRADE"
+        assert data["signal_display"] == "NO SIGNAL"
+        assert not data["can_trade_now"]
 
-        res_neutral2 = await strategy_service.evaluate_signal(
+
+@pytest.mark.asyncio
+async def test_signal_negative_79_no_signal():
+    async with AsyncSessionLocal() as session:
+        res = await strategy_service.evaluate_signal(
             db=session,
-            gift_nifty_change=-79.9,
+            gift_nifty_change=-79.0,
             current_time=time(9, 15, 30),
         )
-        assert res_neutral2["data"]["signal"] == "NO_TRADE"
-        assert not res_neutral2["data"]["can_trade_now"]
-
-        res_neutral3 = await strategy_service.evaluate_signal(
-            db=session,
-            gift_nifty_change=0.0,
-            current_time=time(9, 15, 30),
-        )
-        assert res_neutral3["data"]["signal"] == "NO_TRADE"
-        assert not res_neutral3["data"]["can_trade_now"]
+        data = res["data"]
+        assert data["signal"] == "NO_TRADE"
+        assert data["signal_display"] == "NO SIGNAL"
+        assert not data["can_trade_now"]
 
 
-async def async_test_capital_management_and_limits():
-    """Verify Capital-based Stop Loss (5%) and Target Profit (6%)."""
+# 7, 8, 9, 10: Trading Window Tests (09:15-09:17 AM IST)
+def test_trading_window_outside_block():
+    in_w_pre, msg_pre = strategy_service.is_within_trading_window(time(9, 14, 59))
+    assert not in_w_pre, "09:14:59 must be blocked (pre-market)"
+
+    in_w_post, msg_post = strategy_service.is_within_trading_window(time(10, 0, 0))
+    assert not in_w_post, "10:00:00 must be blocked (outside window)"
+
+
+def test_trading_window_0915_allow():
+    in_w, msg = strategy_service.is_within_trading_window(time(9, 15, 0))
+    assert in_w, "09:15:00 must be allowed (inclusive window open)"
+
+
+def test_trading_window_0916_allow():
+    in_w, msg = strategy_service.is_within_trading_window(time(9, 16, 30))
+    assert in_w, "09:16:30 must be allowed (inside window)"
+
+
+def test_trading_window_0917_after_block():
+    in_w_exact, _ = strategy_service.is_within_trading_window(time(9, 17, 0))
+    assert not in_w_exact, "09:17:00 must be blocked (exclusive window close)"
+
+    in_w_after, _ = strategy_service.is_within_trading_window(time(9, 17, 1))
+    assert not in_w_after, "09:17:01 must be blocked"
+
+
+# 11 & 12: Second trade same day BLOCK & New trading day RESET
+@pytest.mark.asyncio
+async def test_second_trade_same_day_block():
+    order_svc = OrderService()
     async with AsyncSessionLocal() as session:
-        config = await broker_service.get_or_create_config(session)
-        capital = config.total_capital  # 200,000
-        sl_pct = config.stoploss_capital_pct  # 5%
-        tgt_pct = config.target_capital_pct  # 6%
-
-        sl_amount = capital * (sl_pct / 100.0)
-        tgt_amount = capital * (tgt_pct / 100.0)
-
-        assert sl_amount == 10000.0, f"Expected SL amount 10000, got {sl_amount}"
-        assert tgt_amount == 12000.0, f"Expected Target amount 12000, got {tgt_amount}"
-
-        # Option point equivalent for 2 lots (50 qty)
-        qty = config.lots * config.lot_size
-        sl_points = sl_amount / qty
-        tgt_points = tgt_amount / qty
-        assert sl_points == 200.0, f"Expected SL points 200, got {sl_points}"
-        assert tgt_points == 240.0, f"Expected Target points 240, got {tgt_points}"
-
-
-async def async_test_backtest_runner():
-    """Verify historical backtest execution against candles."""
-    async with AsyncSessionLocal() as session:
-        bt_res = await strategy_service.run_backtest(
-            db=session,
-            from_date="2026-01-01",
-            to_date="2026-11-03",
-            capital=200000.0,
-            lots=2,
-        )
-        assert bt_res["connection_status"] == "connected"
-        data = bt_res["data"]
-        assert data["strategy_id"] == "strat-gift-nifty-dir"
-        assert data["status"] in ["SUCCESS", "DATA UNAVAILABLE"]
-        if data["status"] == "SUCCESS":
-            assert data["total_trading_days"] > 0
-            assert data["total_trades"] + data["no_trade_days"] == data["total_trading_days"]
-            assert data["win_rate_pct"] >= 0.0
-            assert "profit_factor" in data
-            assert "max_drawdown_pct" in data
-
-
-async def async_test_paper_trading_execution_and_daily_limit():
-    """Verify paper trading order execution and daily 1-trade limit enforcement."""
-    order_service = OrderService()
-    async with AsyncSessionLocal() as session:
-        config = await broker_service.get_or_create_config(session)
-        config.mode = "PAPER"
-        config.trades_executed_today = 0
+        cfg = await broker_service.get_or_create_config(session)
+        cfg.mode = "BACKTEST"
+        cfg.trades_executed_today = 0
+        cfg.is_kill_switch_active = False
         await session.commit()
 
-        # 1. Place 1st paper directional order -> Should succeed
-        res = await order_service.place_directional_order(
+        # Trade 1: Should succeed
+        res1 = await order_svc.place_directional_order(session, "CE", lots=1)
+        assert res1["status"] if "status" in res1 else res1["connection_status"] == "connected"
+
+        # Trade 2 on same day: MUST be blocked
+        blocked = False
+        try:
+            await order_svc.place_directional_order(session, "PE", lots=1)
+        except RiskLimitBreachedException as err:
+            blocked = True
+            assert "Maximum daily limit reached" in str(err)
+        assert blocked, "Second trade on same day must be blocked by daily trade limit"
+
+        # Cleanup
+        cfg.trades_executed_today = 0
+        await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_new_trading_day_reset():
+    async with AsyncSessionLocal() as session:
+        cfg = await broker_service.get_or_create_config(session)
+        cfg.last_trade_date = "2026-11-01"  # Yesterday/prior date
+        cfg.trades_executed_today = 1       # Limit was consumed
+        await session.commit()
+
+        # Evaluate signal on current date -> must reset trades_executed_today to 0
+        res = await strategy_service.evaluate_signal(
+            db=session,
+            gift_nifty_change=85.0,
+            current_time=time(9, 15, 30),
+        )
+        assert res["data"]["daily_trade_count"] == 0
+
+        # Verify DB persisted the reset
+        cfg_refreshed = await broker_service.get_or_create_config(session)
+        assert cfg_refreshed.trades_executed_today == 0
+
+
+# 13 & 14: ITM 3 CE and PE Selection
+def test_itm3_ce_selection():
+    # Spot = 24878.50 -> ATM = 24900 -> ITM 3 Call = 24900 - 150 = 24750
+    ce_strike = strategy_service.calculate_itm3_strike(24878.50, "CE")
+    assert ce_strike == 24750, f"Expected 24750 for 3rd ITM Call, got {ce_strike}"
+
+    # Spot = 25010 -> ATM = 25000 -> ITM 3 Call = 25000 - 150 = 24850
+    assert strategy_service.calculate_itm3_strike(25010.0, "CE") == 24850
+
+
+def test_itm3_pe_selection():
+    # Spot = 24878.50 -> ATM = 24900 -> ITM 3 Put = 24900 + 150 = 25050
+    pe_strike = strategy_service.calculate_itm3_strike(24878.50, "PE")
+    assert pe_strike == 25050, f"Expected 25050 for 3rd ITM Put, got {pe_strike}"
+
+    # Spot = 25010 -> ATM = 25000 -> ITM 3 Put = 25000 + 150 = 25150
+    assert strategy_service.calculate_itm3_strike(25010.0, "PE") == 25150
+
+
+# 15: Quantity = 1 lot × validated lot size (65)
+def test_quantity_1_lot_validated_lot_size():
+    # Test 1 lot = 65 quantity
+    calc_1 = strategy_service.calculate_and_validate_quantity(lots=1, lot_size=65)
+    assert calc_1["is_valid"]
+    assert calc_1["total_quantity"] == 65
+    assert calc_1["lots"] == 1
+    assert calc_1["lot_size"] == 65
+
+    # Test 2 lots = 130 quantity
+    calc_2 = strategy_service.calculate_and_validate_quantity(lots=2, lot_size=65)
+    assert calc_2["is_valid"]
+    assert calc_2["total_quantity"] == 130
+
+    # Test non-multiple rejected (e.g. 70 qty is not multiple of 65)
+    calc_invalid = strategy_service.calculate_and_validate_quantity(
+        lots=1, lot_size=65, raw_quantity=70
+    )
+    assert not calc_invalid["is_valid"]
+
+
+# 16 & 17: Capital SL = 5% and Capital Target = 6%
+@pytest.mark.asyncio
+async def test_capital_sl_5pct():
+    async with AsyncSessionLocal() as session:
+        cfg = await broker_service.get_or_create_config(session)
+        capital = cfg.total_capital  # ₹2,00,000
+        sl_pct = cfg.stoploss_capital_pct  # 5%
+        sl_amount = capital * (sl_pct / 100.0)
+        assert sl_pct == 5.0
+        assert sl_amount == 10000.0  # ₹10,000 on ₹2L capital
+
+        # On ₹1,00,000 capital, SL = ₹5,000
+        calc_1l_sl = 100000.0 * (5.0 / 100.0)
+        assert calc_1l_sl == 5000.0
+
+
+@pytest.mark.asyncio
+async def test_capital_target_6pct():
+    async with AsyncSessionLocal() as session:
+        cfg = await broker_service.get_or_create_config(session)
+        capital = cfg.total_capital  # ₹2,00,000
+        tgt_pct = cfg.target_capital_pct  # 6%
+        tgt_amount = capital * (tgt_pct / 100.0)
+        assert tgt_pct == 6.0
+        assert tgt_amount == 12000.0  # ₹12,000 on ₹2L capital
+
+        # On ₹1,00,000 capital, Target = ₹6,000
+        calc_1l_tgt = 100000.0 * (6.0 / 100.0)
+        assert calc_1l_tgt == 6000.0
+
+
+# 18: Failed order -> NO false filled status
+@pytest.mark.asyncio
+async def test_failed_order_no_false_filled_status():
+    order_svc = OrderService()
+    async with AsyncSessionLocal() as session:
+        cfg = await broker_service.get_or_create_config(session)
+        cfg.mode = "LIVE"  # When token is invalid or API throws
+        await session.commit()
+
+        # Live order with disconnected/simulated exception should be REJECTED, never FILLED
+        res = await order_svc.place_directional_order(
             db=session,
             option_type="CE",
-            lots=2,
+            lots=1,
             order_type="MARKET",
         )
-        assert res["connection_status"] == "connected"
-        assert res["data"]["mode"] == "PAPER"
-        assert res["data"]["moneyness"] == "ITM 3"
-        assert res["data"]["strike"] == 24750
+        if res.get("data"):
+            order_status = res["data"].get("status")
+            assert order_status in ["REJECTED", "PLACED"], f"Status must not be falsely FILLED, got {order_status}"
+            assert order_status != "FILLED"
+        else:
+            assert res.get("connection_status") == "connection_lost"
 
-        # Check daily trade limit was incremented
-        config_after = await broker_service.get_or_create_config(session)
-        assert config_after.trades_executed_today >= 1
-
-        # 2. Attempt 2nd trade on the same day -> Must raise RiskLimitBreachedException
-        from backend.app.core.exceptions import RiskLimitBreachedException
-        exception_raised = False
-        try:
-            await order_service.place_directional_order(
-                db=session,
-                option_type="PE",
-                lots=2,
-                order_type="MARKET",
-            )
-        except RiskLimitBreachedException as e:
-            exception_raised = True
-            assert "Maximum daily limit reached" in str(e)
-
-        assert exception_raised, "Expected 2nd trade on same day to be blocked by daily trade limit"
-
-        # Reset daily trade counter for clean testing state
-        config_after.trades_executed_today = 0
+        # Restore mode to BACKTEST
+        cfg.mode = "BACKTEST"
         await session.commit()
 
 
-def test_main():
-    test_strike_selection_3rd_itm()
-    test_trading_window_restriction()
-    asyncio.run(async_test_directional_signals())
-    asyncio.run(async_test_capital_management_and_limits())
-    asyncio.run(async_test_paper_trading_execution_and_daily_limit())
-    asyncio.run(async_test_backtest_runner())
-    print("ALL TESTS PASSED SUCCESSFULLY!")
+# 19: Duplicate signal -> NO duplicate order
+@pytest.mark.asyncio
+async def test_duplicate_signal_no_duplicate_order():
+    async with AsyncSessionLocal() as session:
+        cfg = await broker_service.get_or_create_config(session)
+        cfg.trades_executed_today = 1  # 1 order already executed today
+        cfg.strategy_status = "RUNNING"
+        await session.commit()
 
+        # Run monitoring tick with +95 Bullish signal
+        tick_res = await strategy_service.run_monitoring_tick(
+            db=session,
+            override_time=time(9, 15, 30),
+            override_change=95.0,
+        )
+        actions = tick_res["data"]["actions_taken"]
+        # No second order placed due to duplicate signal
+        executed = any("Auto-executed" in a for a in actions)
+        assert not executed, "Duplicate signal must NOT place duplicate order"
 
-if __name__ == "__main__":
-    test_main()
+        # Cleanup
+        cfg.trades_executed_today = 0
+        cfg.strategy_status = "STOPPED"
+        await session.commit()

@@ -9,6 +9,7 @@ import {
   StrategyConfig,
   AccountStats,
   BrokerCredentials,
+  InstrumentMetadata,
 } from "@/types/trading";
 import {
   defaultStrategy,
@@ -38,6 +39,7 @@ interface TradingContextType {
   activePosition: Position | null;
   orders: Order[];
   strategy: StrategyConfig;
+  instrumentMetadata: InstrumentMetadata;
   stats: AccountStats;
   credentials: BrokerCredentials;
   updateCredentials: (updates: Partial<BrokerCredentials>) => void;
@@ -77,6 +79,21 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   const [activePosition, setActivePosition] = useState<Position | null>(initialActivePosition);
   const [orders, setOrders] = useState<Order[]>(mockOrders);
   const [strategy, setStrategy] = useState<StrategyConfig>(defaultStrategy);
+  const [instrumentMetadata, setInstrumentMetadata] = useState<InstrumentMetadata>({
+    name: "NIFTY",
+    segment: "NSE_FO",
+    exchange: "NSE",
+    instrumentKey: "NSE_FO|40013",
+    tradingSymbol: "NIFTY 24750 CE 09 NOV 26",
+    expiry: "2026-11-09",
+    lotSize: 65,
+    freezeQuantity: 1755,
+    minimumLot: 65,
+    tickSize: 0.05,
+    strike: 24750,
+    optionType: "CE",
+    source: "upstox_option_contract_api",
+  });
   const [stats, setStats] = useState<AccountStats>(initialStats);
   const [credentials, setCredentials] = useState<BrokerCredentials>(initialBrokerCredentials);
   const [isKillSwitchModalOpen, setIsKillSwitchModalOpen] = useState(false);
@@ -108,6 +125,39 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
               ucc: json.data.user_id || prev.ucc,
               accountName: json.data.user_name || prev.accountName,
             }));
+          }
+        }
+        // Fetch live Upstox option contract metadata for NIFTY 50 lot size (65)
+        const metaRes = await fetch("http://localhost:8000/api/v1/strategy/instrument-metadata?option_type=CE");
+        if (metaRes.ok) {
+          const metaJson = await metaRes.json();
+          if (metaJson.data && metaJson.data.lot_size) {
+            const liveLotSize = Number(metaJson.data.lot_size) || 65;
+            const liveFreeze = Number(metaJson.data.freeze_quantity) || 1755;
+            setInstrumentMetadata({
+              name: metaJson.data.name || "NIFTY",
+              segment: metaJson.data.segment || "NSE_FO",
+              exchange: metaJson.data.exchange || "NSE",
+              instrumentKey: metaJson.data.instrument_key || "NSE_FO|40013",
+              tradingSymbol: metaJson.data.trading_symbol || "NIFTY 24750 CE 09 NOV 26",
+              expiry: metaJson.data.expiry || "2026-11-09",
+              lotSize: liveLotSize,
+              freezeQuantity: liveFreeze,
+              minimumLot: Number(metaJson.data.minimum_lot) || liveLotSize,
+              tickSize: Number(metaJson.data.tick_size) || 0.05,
+              strike: Number(metaJson.data.strike) || 24750,
+              optionType: (metaJson.data.option_type as "CE" | "PE") || "CE",
+              source: metaJson.data.source || "upstox_option_contract_api",
+            });
+            setStrategy((prev) => {
+              const totalQty = prev.lots * liveLotSize;
+              return {
+                ...prev,
+                lotSize: liveLotSize,
+                stoplossPoints: Math.round(prev.stoplossAmount / totalQty),
+                targetPoints: Math.round(prev.targetAmount / totalQty),
+              };
+            });
           }
         }
       } catch {
@@ -173,8 +223,10 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [niftyPrice, strategy.giftNiftyChange]);
 
-  // Real-time tick fluctuation and Capital-based SL / Target monitor
+  // Real-time tick fluctuation and Capital-based SL / Target monitor (Simulation/BACKTEST only)
   useEffect(() => {
+    // In LIVE mode, NEVER simulate ticks or fake prices; strictly rely on verified Upstox API feed
+    if (mode === "LIVE") return;
     if (connectionStatus !== "CONNECTED") return;
 
     const interval = setInterval(() => {
@@ -220,7 +272,94 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     }, 2400);
 
     return () => clearInterval(interval);
-  }, [connectionStatus, strategy.stoplossAmount, strategy.targetAmount]);
+  }, [connectionStatus, mode, strategy.stoplossAmount, strategy.targetAmount]);
+
+  // Regular synchronization with FastAPI backend for live quotes, strategy telemetry, and orders
+  useEffect(() => {
+    let isSubscribed = true;
+
+    async function syncBackendState() {
+      try {
+        // 1. Sync Strategy configuration & daily trades
+        const stratRes = await fetch("http://localhost:8000/api/v1/strategy");
+        if (stratRes.ok && isSubscribed) {
+          const stratJson = await stratRes.json();
+          if (stratJson.data) {
+            const sd = stratJson.data;
+            setStrategy((prev) => ({
+              ...prev,
+              name: sd.name || prev.name,
+              status: sd.status || prev.status,
+              dailyTradeCount: sd.trades_executed_today !== undefined ? sd.trades_executed_today : prev.dailyTradeCount,
+              maxDailyTrades: sd.max_trades_per_day || prev.maxDailyTrades,
+              totalCapital: sd.total_capital || prev.totalCapital,
+              stoplossPercent: sd.stoploss_capital_pct || prev.stoplossPercent,
+              stoplossAmount: sd.stoploss_amount || prev.stoplossAmount,
+              targetPercent: sd.target_capital_pct || prev.targetPercent,
+              targetAmount: sd.target_amount || prev.targetAmount,
+              lotSize: sd.lot_size || prev.lotSize,
+              lots: sd.lots || prev.lots,
+            }));
+          }
+        }
+
+        // 2. In LIVE mode, fetch real Nifty spot quote from Upstox
+        const spotRes = await fetch("http://localhost:8000/api/v1/market/nifty-spot");
+        if (spotRes.ok && isSubscribed) {
+          const spotJson = await spotRes.json();
+          if (spotJson.data && spotJson.data.spot_price) {
+            setNiftyPrice(spotJson.data.spot_price);
+            setNiftyChange(spotJson.data.change);
+            setNiftyChangePct(spotJson.data.change_pct);
+          }
+        }
+
+        // 3. In LIVE mode, fetch real Gift Nifty 1-Day telemetry
+        const giftRes = await fetch("http://localhost:8000/api/v1/market/gift-nifty-1day");
+        if (giftRes.ok && isSubscribed) {
+          const giftJson = await giftRes.json();
+          if (giftJson.data && giftJson.data.day_change_points !== undefined) {
+            setGiftNiftyChange(giftJson.data.day_change_points);
+          }
+        }
+
+        // 4. Sync Orders from Backend
+        const ordersRes = await fetch("http://localhost:8000/api/v1/orders");
+        if (ordersRes.ok && isSubscribed) {
+          const ordersJson = await ordersRes.json();
+          if (Array.isArray(ordersJson.data) && ordersJson.data.length > 0) {
+            setOrders(
+              ordersJson.data.map((o: any) => ({
+                id: o.client_order_id || o.id,
+                time: o.time,
+                symbol: o.symbol,
+                strike: o.strike,
+                type: o.type,
+                lots: o.lots,
+                lotSize: o.lot_size || 65,
+                qty: o.qty,
+                price: o.price,
+                status: o.status,
+                pnl: o.pnl,
+                exitPrice: o.exit_price,
+                exitTime: o.exit_time,
+                rejectReason: o.reject_reason,
+              }))
+            );
+          }
+        }
+      } catch {
+        // Backend offline or unreachable
+      }
+    }
+
+    syncBackendState();
+    const interval = setInterval(syncBackendState, 3500);
+    return () => {
+      isSubscribed = false;
+      clearInterval(interval);
+    };
+  }, [mode]);
 
   // Helper: Close position with specific exit reason
   const closePositionWithReason = (reason: string) => {
@@ -233,6 +372,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
         strike: currPos.strike,
         type: currPos.type,
         lots: currPos.lots,
+        lotSize: currPos.lotSize || strategy.lotSize,
         qty: currPos.qty,
         price: currPos.buyPrice,
         status: "CLOSED",
@@ -267,6 +407,11 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       requestLiveMode();
     } else {
       setModeState(newMode);
+      fetch("http://localhost:8000/api/v1/strategy/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: newMode }),
+      }).catch(() => {});
       addToast({
         type: "info",
         title: `Mode: ${newMode} Active`,
@@ -281,6 +426,11 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   const confirmLiveMode = () => {
     setIsLiveConfirmOpen(false);
     setModeState("LIVE");
+    fetch("http://localhost:8000/api/v1/strategy/mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "LIVE", confirm_live: true }),
+    }).catch(() => {});
     addToast({
       type: "warning",
       title: "LIVE TRADING ACTIVATED",
@@ -347,8 +497,39 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    const lots = lotsOverride || strategy.lots;
-    const qty = lots * strategy.lotSize;
+    const lots = lotsOverride ?? strategy.lots;
+    const lotSize = strategy.lotSize || 65;
+    const qty = lots * lotSize;
+    const freezeQty = instrumentMetadata.freezeQuantity || 1755;
+
+    // Validate against broker & exchange requirements
+    if (!Number.isInteger(lots) || lots < 1) {
+      addToast({
+        type: "error",
+        title: "Invalid Lot Count",
+        message: `Number of lots must be at least 1 (1 lot = ${lotSize} units).`,
+      });
+      return false;
+    }
+
+    if (qty % lotSize !== 0) {
+      addToast({
+        type: "error",
+        title: "Exchange Lot Multiple Error",
+        message: `Total quantity (${qty}) must be an exact multiple of NIFTY lot size (${lotSize}).`,
+      });
+      return false;
+    }
+
+    if (qty > freezeQty) {
+      const maxLots = Math.floor(freezeQty / lotSize);
+      addToast({
+        type: "error",
+        title: "NSE Freeze Limit Exceeded",
+        message: `Total quantity (${qty}) exceeds NSE NIFTY freeze limit of ${freezeQty} units (${maxLots} lots max per order).`,
+      });
+      return false;
+    }
 
     // Formula: 3rd ITM Strike
     // Call ITM 3: ATM - 150
@@ -356,6 +537,17 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     const atmStrike = Math.round(niftyPrice / 50) * 50;
     const itm3Strike = type === "CE" ? atmStrike - 150 : atmStrike + 150;
     const premium = type === "CE" ? 218.4 : 204.6;
+    const estimatedMargin = premium * qty;
+
+    if (estimatedMargin > stats.marginAvailable) {
+      addToast({
+        type: "error",
+        title: "RMS Margin Validation Failed",
+        message: `Required margin ₹${formatIndianNumber(Math.round(estimatedMargin))} (${lots} lots × ${lotSize} = ${qty} qty) exceeds available margin ₹${formatIndianNumber(Math.round(stats.marginAvailable))}.`,
+      });
+      return false;
+    }
+
     const orderId = `UPX-${Date.now().toString().slice(-6)}`;
     const time = new Date().toLocaleTimeString("en-GB");
     const symbol = `NIFTY ${itm3Strike} ${type}`;
@@ -367,6 +559,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       strike: itm3Strike,
       type,
       lots,
+      lotSize,
       qty,
       price: premium,
       status: "PLACED",
@@ -384,6 +577,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       strike: itm3Strike,
       type,
       lots,
+      lotSize,
       qty,
       buyPrice: premium,
       ltp: premium,
@@ -411,8 +605,20 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     addToast({
       type: "success",
       title: `Order Placed (${mode} Mode)`,
-      message: `Bought ${symbol} (3rd ITM) - ${lots} Lots (${qty} Qty) @ ₹${premium.toFixed(2)}`,
+      message: `Bought ${symbol} (3rd ITM) • ${lots} Lots × ${lotSize} = ${qty} Qty @ ₹${premium.toFixed(2)}`,
     });
+
+    // Send order to FastAPI backend
+    fetch("http://localhost:8000/api/v1/orders/directional", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        option_type: type,
+        lots,
+        strike: itm3Strike,
+        order_type: "MARKET",
+      }),
+    }).catch(() => {});
 
     return true;
   };
@@ -434,6 +640,12 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
 
     const nextStatus = strategy.status === "RUNNING" ? "STOPPED" : "RUNNING";
     setStrategy((prev) => ({ ...prev, status: nextStatus }));
+
+    // Sync strategy automation status to backend
+    fetch("http://localhost:8000/api/v1/strategy/toggle", {
+      method: "POST",
+    }).catch(() => {});
+
     addToast({
       type: nextStatus === "RUNNING" ? "success" : "info",
       title: `Strategy ${nextStatus}`,
@@ -445,8 +657,21 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateStrategyLots = (lots: number) => {
-    if (lots < 1 || lots > 50) return;
-    const qty = lots * strategy.lotSize;
+    const lotSize = strategy.lotSize || 65;
+    const freezeQty = instrumentMetadata.freezeQuantity || 1755;
+    const maxLots = Math.floor(freezeQty / lotSize); // 27 lots = 1,755 qty
+
+    if (!Number.isInteger(lots) || lots < 1) return;
+    if (lots > maxLots) {
+      addToast({
+        type: "warning",
+        title: "NSE Freeze Quantity Limit",
+        message: `Maximum allowed per order is ${maxLots} lots (${freezeQty} qty) for NIFTY 50 options.`,
+      });
+      return;
+    }
+
+    const qty = lots * lotSize;
     const slPts = Math.round(strategy.stoplossAmount / qty);
     const tgtPts = Math.round(strategy.targetAmount / qty);
 
@@ -457,10 +682,17 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       targetPoints: tgtPts,
     }));
 
+    // Persist to backend asynchronously
+    fetch("http://localhost:8000/api/v1/strategy/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lots }),
+    }).catch(() => {});
+
     addToast({
       type: "info",
-      title: "Lots Configured",
-      message: `Configured ${lots} lots (${qty} qty). SL = ${slPts} pts, Target = ${tgtPts} pts.`,
+      title: "Lot Size & Quantity Updated",
+      message: `${lots} Lot${lots > 1 ? "s" : ""} × ${lotSize} Lot Size = ${qty} Total Quantity (SL: ${slPts} pts, Target: ${tgtPts} pts).`,
     });
   };
 
@@ -556,6 +788,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
         activePosition,
         orders,
         strategy,
+        instrumentMetadata,
         stats,
         credentials,
         updateCredentials,

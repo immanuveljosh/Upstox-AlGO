@@ -35,7 +35,7 @@ class SystemConfig(Base, TimestampMixin):
     target_capital_pct: Mapped[float] = mapped_column(Float, default=6.0)  # 6% Target
 
     # Order Lot Configuration
-    lot_size: Mapped[int] = mapped_column(Integer, default=25)  # 25 units per lot for Nifty
+    lot_size: Mapped[int] = mapped_column(Integer, default=65)  # 65 units per lot for current Nifty contracts
     lots: Mapped[int] = mapped_column(Integer, default=2)  # Configurable lots
 
     # Safeguards

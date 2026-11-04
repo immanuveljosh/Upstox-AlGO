@@ -6,8 +6,9 @@ import { useTrading } from "@/context/TradingContext";
 import { ClipboardList, ArrowDownToLine, RefreshCw } from "lucide-react";
 
 export default function OrdersPage() {
-  const { orders, connectionStatus } = useTrading();
+  const { orders, connectionStatus, strategy } = useTrading();
   const isConnected = connectionStatus === "CONNECTED";
+  const actualLotSize = strategy.lotSize || 65;
 
   return (
     <div className="space-y-5">
@@ -26,8 +27,15 @@ export default function OrdersPage() {
         </div>
 
         {isConnected && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-slate-400">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-300">
+              NIFTY Lot Size: <strong className="text-emerald-400">{actualLotSize}</strong> &bull;{" "}
+              Active Config:{" "}
+              <strong className="text-white">
+                {strategy.lots}L &times; {actualLotSize} = {strategy.lots * actualLotSize} Qty
+              </strong>
+            </span>
+            <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-slate-400">
               Total Recorded: <strong className="text-white">{orders.length}</strong>
             </span>
           </div>

@@ -40,10 +40,10 @@ export const defaultStrategy: StrategyConfig = {
   windowStatus: "CLOSED",
   dailyTradeCount: 0,
   maxDailyTrades: 1,
-  lotSize: 25, // 25 per lot for Nifty
-  lots: 2, // 50 quantity
-  stoplossPoints: 200, // ₹10,000 / 50 qty = 200 pts equivalent
-  targetPoints: 240, // ₹12,000 / 50 qty = 240 pts equivalent
+  lotSize: 65, // 65 units per lot for current NIFTY 50 contracts
+  lots: 2, // 130 total quantity (2 × 65)
+  stoplossPoints: 77, // ₹10,000 / 130 qty = ~76.92 pts equivalent
+  targetPoints: 92, // ₹12,000 / 130 qty = ~92.31 pts equivalent
   maxDailyLoss: 10000, // 5% of Rs. 2,00,000 capital
   entryWindowStart: "09:15",
   entryWindowEnd: "09:17",
@@ -55,12 +55,13 @@ export const initialActivePosition: Position = {
   symbol: "NIFTY 24850 CE",
   strike: 24850,
   type: "CE",
-  lots: 3,
-  qty: 75,
+  lots: 2,
+  lotSize: 65,
+  qty: 130, // 2 lots × 65 = 130 qty
   buyPrice: 142.4,
-  ltp: 161.8,
-  pnl: 1455.0, // (161.8 - 142.4) * 75
-  pnlPercent: 13.62,
+  ltp: 153.6,
+  pnl: 1456.0, // (153.6 - 142.4) * 130
+  pnlPercent: 7.87,
   stoploss: 122.0,
   target: 192.4,
   trailingSl: 138.0,
@@ -68,10 +69,10 @@ export const initialActivePosition: Position = {
 };
 
 export const initialStats: AccountStats = {
-  openPnl: 1455.0,
+  openPnl: 1456.0,
   todayPnl: 3825.0,
-  marginUsed: 42680.0,
-  marginAvailable: 157320.0,
+  marginUsed: 28392.0,
+  marginAvailable: 171608.0,
   totalCapital: 200000.0,
   winRate: 71.4,
   totalTrades: 7,
@@ -86,11 +87,12 @@ export const mockOrders: Order[] = [
     symbol: "NIFTY 24850 CE",
     strike: 24850,
     type: "CE",
-    lots: 3,
-    qty: 75,
+    lots: 2,
+    lotSize: 65,
+    qty: 130, // 2 lots × 65
     price: 142.4,
     status: "PLACED",
-    pnl: 1455.0,
+    pnl: 1456.0,
   },
   {
     id: "ORD-94801",
@@ -99,12 +101,13 @@ export const mockOrders: Order[] = [
     strike: 24800,
     type: "PE",
     lots: 3,
-    qty: 75,
+    lotSize: 65,
+    qty: 195, // 3 lots × 65
     price: 128.5,
     status: "CLOSED",
-    exitPrice: 159.2,
+    exitPrice: 140.3,
     exitTime: "10:02:40",
-    pnl: 2302.5, // (159.2 - 128.5) * 75
+    pnl: 2301.0, // (140.3 - 128.5) * 195
   },
   {
     id: "ORD-94788",
@@ -112,13 +115,14 @@ export const mockOrders: Order[] = [
     symbol: "NIFTY 24900 CE",
     strike: 24900,
     type: "CE",
-    lots: 2,
-    qty: 50,
+    lots: 1,
+    lotSize: 65,
+    qty: 65, // 1 lot × 65
     price: 112.0,
     status: "CLOSED",
-    exitPrice: 113.35,
+    exitPrice: 113.05,
     exitTime: "09:34:02",
-    pnl: 67.5,
+    pnl: 68.25,
   },
   {
     id: "ORD-94775",
@@ -126,11 +130,12 @@ export const mockOrders: Order[] = [
     symbol: "NIFTY 24750 PE",
     strike: 24750,
     type: "PE",
-    lots: 4,
-    qty: 100,
-    price: 94.5,
+    lots: 3,
+    lotSize: 65,
+    qty: 195, // 3 lots × 65
+    price: 218.5,
     status: "REJECTED",
-    rejectReason: "RMS: Available margin ₹38,400 < Required margin ₹42,525",
+    rejectReason: "RMS: Available margin ₹38,400 < Required margin ₹42,607.50",
   },
   {
     id: "ORD-94762",
@@ -138,13 +143,14 @@ export const mockOrders: Order[] = [
     symbol: "NIFTY 24700 CE",
     strike: 24700,
     type: "CE",
-    lots: 3,
-    qty: 75,
+    lots: 2,
+    lotSize: 65,
+    qty: 130, // 2 lots × 65
     price: 154.2,
     status: "CLOSED",
-    exitPrice: 184.8,
+    exitPrice: 171.85,
     exitTime: "Yesterday 14:52:19",
-    pnl: 2295.0,
+    pnl: 2294.5,
   },
   {
     id: "ORD-94750",
@@ -152,13 +158,14 @@ export const mockOrders: Order[] = [
     symbol: "NIFTY 24750 PE",
     strike: 24750,
     type: "PE",
-    lots: 3,
-    qty: 75,
+    lots: 1,
+    lotSize: 65,
+    qty: 65, // 1 lot × 65
     price: 135.0,
     status: "CLOSED",
-    exitPrice: 118.0,
+    exitPrice: 115.4,
     exitTime: "Yesterday 12:05:12",
-    pnl: -1275.0,
+    pnl: -1274.0,
   },
   {
     id: "ORD-94738",
@@ -166,8 +173,9 @@ export const mockOrders: Order[] = [
     symbol: "NIFTY 24800 CE",
     strike: 24800,
     type: "CE",
-    lots: 3,
-    qty: 75,
+    lots: 2,
+    lotSize: 65,
+    qty: 130, // 2 lots × 65
     price: 160.0,
     status: "REJECTED",
     rejectReason: "Exchange circuit limit breach safeguard",

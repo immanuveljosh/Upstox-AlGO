@@ -13,6 +13,7 @@ export interface Order {
   strike: number;
   type: OptionType;
   lots: number;
+  lotSize?: number; // e.g. 65 units per lot
   qty: number;
   price: number;
   status: OrderStatus;
@@ -27,6 +28,7 @@ export interface Position {
   strike: number;
   type: OptionType;
   lots: number;
+  lotSize?: number; // e.g. 65 units per lot
   qty: number;
   buyPrice: number;
   ltp: number;
@@ -36,6 +38,22 @@ export interface Position {
   target: number;
   trailingSl: number;
   entryTime: string;
+}
+
+export interface InstrumentMetadata {
+  name: string;
+  segment: string;
+  exchange: string;
+  instrumentKey: string;
+  tradingSymbol: string;
+  expiry: string;
+  lotSize: number; // 65 units per lot
+  freezeQuantity: number; // 1755 units (27 lots)
+  minimumLot: number;
+  tickSize: number;
+  strike: number;
+  optionType: OptionType;
+  source: string;
 }
 
 export interface StrategyConfig {

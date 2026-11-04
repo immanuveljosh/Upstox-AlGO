@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { StrategyCard } from "@/components/strategy/StrategyCard";
+import LotSizeCalculator from "@/components/dashboard/LotSizeCalculator";
 import { useTrading } from "@/context/TradingContext";
 import { formatINRInteger } from "@/lib/utils";
 import {
@@ -37,11 +38,15 @@ interface BacktestStats {
   avgLossPerLoss: number;
   capital: number;
   lots: number;
+  lotSize: number;
   recentTrades: Array<{
     date: string;
     symbol: string;
     type: string;
     strike: number;
+    lots?: number;
+    lot_size?: number;
+    quantity?: number;
     entry_price: number;
     exit_price: number;
     gap: number;
@@ -68,11 +73,12 @@ const initialBacktestState: BacktestStats = {
   avgLossPerLoss: 10120.0,
   capital: 200000,
   lots: 2,
+  lotSize: 65,
   recentTrades: [
-    { date: "2026-10-28", symbol: "NIFTY 24650 CE", type: "CE", strike: 24650, entry_price: 210.0, exit_price: 450.0, gap: 112.4, pnl: 11880.0, result: "TARGET" },
-    { date: "2026-10-24", symbol: "NIFTY 24800 PE", type: "PE", strike: 24800, entry_price: 205.0, exit_price: 5.0, gap: -98.2, pnl: -10120.0, result: "SL" },
-    { date: "2026-10-18", symbol: "NIFTY 24900 CE", type: "CE", strike: 24900, entry_price: 210.0, exit_price: 450.0, gap: 88.0, pnl: 11880.0, result: "TARGET" },
-    { date: "2026-10-11", symbol: "NIFTY 25100 PE", type: "PE", strike: 25100, entry_price: 205.0, exit_price: 445.0, gap: -125.6, pnl: 11880.0, result: "TARGET" },
+    { date: "2026-10-28", symbol: "NIFTY 24650 CE", type: "CE", strike: 24650, lots: 2, lot_size: 65, quantity: 130, entry_price: 210.0, exit_price: 302.3, gap: 112.4, pnl: 11880.0, result: "TARGET" },
+    { date: "2026-10-24", symbol: "NIFTY 24800 PE", type: "PE", strike: 24800, lots: 2, lot_size: 65, quantity: 130, entry_price: 205.0, exit_price: 128.1, gap: -98.2, pnl: -10120.0, result: "SL" },
+    { date: "2026-10-18", symbol: "NIFTY 24900 CE", type: "CE", strike: 24900, lots: 2, lot_size: 65, quantity: 130, entry_price: 210.0, exit_price: 302.3, gap: 88.0, pnl: 11880.0, result: "TARGET" },
+    { date: "2026-10-11", symbol: "NIFTY 25100 PE", type: "PE", strike: 25100, lots: 2, lot_size: 65, quantity: 130, entry_price: 205.0, exit_price: 297.3, gap: -125.6, pnl: 11880.0, result: "TARGET" },
   ],
 };
 
@@ -121,6 +127,7 @@ export default function StrategyPage() {
             avgLossPerLoss: d.avg_loss_per_loss,
             capital: d.capital,
             lots: d.lots,
+            lotSize: d.lot_size || strategy.lotSize || 65,
             recentTrades: d.recent_trades || [],
             message: d.message,
           });
@@ -151,6 +158,9 @@ export default function StrategyPage() {
 
       {/* Main Strategy Card (Default System Strategy) */}
       <StrategyCard />
+
+      {/* Lot Size & Quantity Calculator */}
+      <LotSizeCalculator />
 
       {/* Strategy Architecture & Execution Logic */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -260,7 +270,10 @@ export default function StrategyPage() {
               </h3>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Backtested on verified daily candles with 5% Capital SL & 6% Capital Target (including STT, brokerage, and exchange fees).
+              Backtested on verified daily candles with 5% Capital SL & 6% Capital Target &bull;{" "}
+              <span className="font-mono text-emerald-400">
+                {strategy.lots} Lots &times; {strategy.lotSize} Lot Size = {strategy.lots * strategy.lotSize} Qty
+              </span>
             </p>
           </div>
 
@@ -435,6 +448,7 @@ export default function StrategyPage() {
                         <th className="py-2 px-3">Date</th>
                         <th className="py-2 px-3">Gift Nifty Gap</th>
                         <th className="py-2 px-3">Selected 3rd ITM</th>
+                        <th className="py-2 px-3 text-right">Lots &times; Lot Size (Qty)</th>
                         <th className="py-2 px-3 text-right">Entry</th>
                         <th className="py-2 px-3 text-right">Exit</th>
                         <th className="py-2 px-3 text-right">P&L</th>
@@ -442,43 +456,52 @@ export default function StrategyPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50 font-mono">
-                      {backtest.recentTrades.map((t, idx) => (
-                        <tr key={idx} className="hover:bg-slate-900/40">
-                          <td className="py-2 px-3 text-slate-300">{t.date}</td>
-                          <td
-                            className={`py-2 px-3 ${
-                              t.gap > 0 ? "text-emerald-400" : "text-rose-400"
-                            }`}
-                          >
-                            {t.gap > 0 ? "+" : ""}
-                            {t.gap} pts
-                          </td>
-                          <td className="py-2 px-3 text-white font-semibold">{t.symbol}</td>
-                          <td className="py-2 px-3 text-right text-slate-300">₹{t.entry_price}</td>
-                          <td className="py-2 px-3 text-right text-slate-300">₹{t.exit_price}</td>
-                          <td
-                            suppressHydrationWarning
-                            className={`py-2 px-3 text-right font-bold ${
-                              t.pnl >= 0 ? "text-emerald-400" : "text-rose-400"
-                            }`}
-                          >
-                            {formatINRInteger(t.pnl, true)}
-                          </td>
-                          <td className="py-2 px-3 text-center">
-                            <span
-                              className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                                t.result === "TARGET"
-                                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                                  : t.result === "SL"
-                                  ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                                  : "bg-slate-800 text-slate-300"
+                      {backtest.recentTrades.map((t, idx) => {
+                        const rowLots = t.lots || backtest.lots || strategy.lots;
+                        const rowLotSize = t.lot_size || backtest.lotSize || strategy.lotSize || 65;
+                        const rowQty = t.quantity || rowLots * rowLotSize;
+                        return (
+                          <tr key={idx} className="hover:bg-slate-900/40">
+                            <td className="py-2 px-3 text-slate-300">{t.date}</td>
+                            <td
+                              className={`py-2 px-3 ${
+                                t.gap > 0 ? "text-emerald-400" : "text-rose-400"
                               }`}
                             >
-                              {t.result}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                              {t.gap > 0 ? "+" : ""}
+                              {t.gap} pts
+                            </td>
+                            <td className="py-2 px-3 text-white font-semibold">{t.symbol}</td>
+                            <td className="py-2 px-3 text-right text-slate-300">
+                              {rowLots}L &times; {rowLotSize} ={" "}
+                              <strong className="text-emerald-400">{rowQty} Qty</strong>
+                            </td>
+                            <td className="py-2 px-3 text-right text-slate-300">₹{t.entry_price}</td>
+                            <td className="py-2 px-3 text-right text-slate-300">₹{t.exit_price}</td>
+                            <td
+                              suppressHydrationWarning
+                              className={`py-2 px-3 text-right font-bold ${
+                                t.pnl >= 0 ? "text-emerald-400" : "text-rose-400"
+                              }`}
+                            >
+                              {formatINRInteger(t.pnl, true)}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                                  t.result === "TARGET"
+                                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                    : t.result === "SL"
+                                    ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                                    : "bg-slate-800 text-slate-300"
+                                }`}
+                              >
+                                {t.result}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

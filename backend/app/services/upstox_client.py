@@ -116,6 +116,23 @@ class UpstoxClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def get_option_contracts(
+        self,
+        access_token: str,
+        instrument_key: str = "NSE_INDEX|Nifty 50",
+        expiry_date: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch official option contract metadata (including lot_size & freeze_quantity) from Upstox."""
+        url = f"{self.base_url}/option/contract"
+        params: Dict[str, Any] = {"instrument_key": instrument_key}
+        if expiry_date:
+            params["expiry_date"] = expiry_date
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(url, headers=self._headers(access_token), params=params)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("data", [])
+
     async def get_historical_candles(
         self,
         instrument_key: str,

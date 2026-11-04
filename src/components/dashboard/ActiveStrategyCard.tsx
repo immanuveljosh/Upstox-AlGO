@@ -111,7 +111,7 @@ export function ActiveStrategyCard() {
           <div className="flex items-center gap-1.5">
             <span className="text-[11px] text-slate-400">Signal:</span>
             <span
-              className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-md border ${
+              className={`text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-md border ${
                 isBullish
                   ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
                   : isBearish
@@ -119,32 +119,34 @@ export function ActiveStrategyCard() {
                   : "bg-slate-800 text-slate-300 border-slate-700"
               }`}
             >
-              {isBullish ? "BULLISH (BUY CALL)" : isBearish ? "BEARISH (BUY PUT)" : "NO TRADE ZONE"}
+              {isBullish ? "CALL" : isBearish ? "PUT" : "NO SIGNAL"}
             </span>
           </div>
         </div>
 
         {/* Key Strategy Parameters Grid */}
         <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-          {/* Selected 3rd ITM Option */}
+          {/* Selected 3rd ITM Option & Strike */}
           <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-            <span className="text-[10px] text-slate-400 block font-medium">Selected 3rd ITM</span>
+            <span className="text-[10px] text-slate-400 block font-medium">Selected Option (ITM 3)</span>
             <span className="font-mono text-xs font-bold text-white mt-1 block truncate">
               {strategy.selectedOption}
             </span>
-            <span className="text-[10px] text-slate-500 font-mono">
-              @ ₹{strategy.entryPrice}
+            <span className="text-[10px] text-cyan-400 font-mono mt-0.5 block">
+              Entry: ₹{strategy.entryPrice}
             </span>
           </div>
 
-          {/* Total Capital */}
+          {/* Total Capital & Lot Size */}
           <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
-            <span className="text-[10px] text-slate-400 block font-medium">Strategy Capital</span>
-            <span suppressHydrationWarning className="font-mono text-xs font-bold text-white mt-1 block">
-              {formatINRInteger(strategy.totalCapital)}
+            <span className="text-[10px] text-slate-400 block font-medium">
+              Lots &times; Lot Size ({strategy.lotSize})
             </span>
-            <span className="text-[10px] text-slate-500 font-mono">
-              {strategy.lots} Lots ({strategy.lots * strategy.lotSize} Qty)
+            <span className="font-mono text-xs font-bold text-emerald-400 mt-1 block">
+              {strategy.lots} Lots = {strategy.lots * strategy.lotSize} Qty
+            </span>
+            <span suppressHydrationWarning className="text-[10px] text-slate-500 font-mono">
+              Cap: {formatINRInteger(strategy.totalCapital)}
             </span>
           </div>
 

@@ -85,8 +85,9 @@ export function PositionCard() {
                   {activePosition.entryTime}
                 </span>
                 <span>&bull;</span>
-                <span>
-                  {activePosition.lots} Lots ({activePosition.qty} Qty)
+                <span className="font-mono text-slate-300">
+                  {activePosition.lots} Lots &times; {activePosition.lotSize || 65} ={" "}
+                  <strong className="text-white">{activePosition.qty} Qty</strong>
                 </span>
               </div>
             </div>

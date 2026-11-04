@@ -1,5 +1,7 @@
-from urllib.parse import urlencode
+from typing import Optional
+from urllib.parse import urlencode, quote
 from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.database import get_db
 from backend.app.core.config import settings
@@ -46,9 +48,34 @@ async def get_login_url(db: AsyncSession = Depends(get_db)):
     }
 
 
+@router.get("/authorize")
+async def authorize_redirect(db: AsyncSession = Depends(get_db)):
+    """
+    Directly redirects browser to Upstox OAuth2 dialog sign-in page.
+    """
+    token_record = await broker_service.get_or_create_token_record(db)
+    client_id = token_record.api_key or settings.UPSTOX_API_KEY
+    redirect_uri = token_record.redirect_uri or settings.UPSTOX_REDIRECT_URI
+
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Upstox API Key (Client ID) is not configured.",
+        )
+
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+    }
+    auth_url = f"{settings.UPSTOX_BASE_URL}/login/authorization/dialog?{urlencode(params)}"
+    return RedirectResponse(url=auth_url, status_code=status.HTTP_302_FOUND)
+
+
 @router.get("/callback")
 async def auth_callback(
     code: str = Query(..., description="Authorization code from Upstox redirect"),
+    format: Optional[str] = Query(None, description="'json' to return JSON payload, otherwise redirects to frontend"),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -74,24 +101,33 @@ async def auth_callback(
         is_connected, msg = await broker_service.update_access_token(db, access_token)
         log_critical_action("OAUTH_TOKEN_EXCHANGED", {"status": is_connected})
 
-        return {
-            "connection_status": "connected" if is_connected else "connection_lost",
-            "data": {
-                "token_saved": True,
-                "is_connected": is_connected,
-                "user_name": token_record.user_name,
-                "ucc": token_record.user_id,
-            },
-            "message": msg or "Upstox OAuth handshake successful.",
-        }
+        if format == "json":
+            return {
+                "connection_status": "connected" if is_connected else "connection_lost",
+                "data": {
+                    "token_saved": True,
+                    "is_connected": is_connected,
+                    "user_name": token_record.user_name,
+                    "ucc": token_record.user_id,
+                },
+                "message": msg or "Upstox OAuth handshake successful.",
+            }
+
+        # Browser redirect to Next.js frontend with query params
+        redirect_url = f"{settings.FRONTEND_URL}/?auth=connected&ucc={token_record.user_id or ''}"
+        return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
 
     except Exception as exc:
         logger.error(f"Upstox OAuth callback failed: {str(exc)}")
-        return {
-            "connection_status": "connection_lost",
-            "data": None,
-            "message": f"OAuth token exchange failed: {str(exc)}",
-        }
+        if format == "json":
+            return {
+                "connection_status": "connection_lost",
+                "data": None,
+                "message": f"OAuth token exchange failed: {str(exc)}",
+            }
+        
+        error_url = f"{settings.FRONTEND_URL}/?auth=error&msg={quote(str(exc))}"
+        return RedirectResponse(url=error_url, status_code=status.HTTP_302_FOUND)
 
 
 @router.post("/token")

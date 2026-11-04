@@ -93,6 +93,34 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  // Handle OAuth callback status from URL parameters
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("auth") === "connected") {
+        setConnectionStatus("CONNECTED");
+        const ucc = params.get("ucc");
+        if (ucc) {
+          setCredentials((prev) => ({ ...prev, ucc }));
+        }
+        addToast({
+          type: "success",
+          title: "Upstox OAuth 2.0 Connected",
+          message: "Authorization handshake complete. Live trading session and WebSocket feed active.",
+        });
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (params.get("auth") === "error") {
+        const errorMsg = params.get("msg") || "OAuth token handshake failed.";
+        addToast({
+          type: "error",
+          title: "Upstox Authentication Failed",
+          message: decodeURIComponent(errorMsg),
+        });
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+  }, [addToast]);
+
   // Re-calculate dynamic 3rd ITM option whenever Spot or Gift Nifty changes
   useEffect(() => {
     const atm = Math.round(niftyPrice / 50) * 50;

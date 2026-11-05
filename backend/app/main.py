@@ -50,6 +50,9 @@ async def init_database():
             ("signal_time", "DATETIME"),
             ("broker_confirmed_at", "DATETIME"),
             ("exit_reason", "VARCHAR(100)"),
+            ("instrument_key", "VARCHAR(100)"),
+            ("exit_upstox_order_id", "VARCHAR(100)"),
+            ("exit_status", "VARCHAR(50)"),
         ]:
             try:
                 await conn.execute(text(f"ALTER TABLE orders ADD COLUMN {col_name} {col_type}"))
@@ -75,7 +78,14 @@ async def init_database():
             except Exception:
                 pass
 
-        # Migrate any existing plaintext access_token or api_secret to encrypted format at rest
+        for col_name, col_type in [
+            ("critical_alert", "VARCHAR(500)"),
+            ("orphan_positions_json", "VARCHAR(4000)"),
+        ]:
+            try:
+                await conn.execute(text(f"ALTER TABLE system_configs ADD COLUMN {col_name} {col_type}"))
+            except Exception:
+                pass
         from backend.app.core.security import encrypt_token, is_encrypted_at_rest
         try:
             raw_rows = (await conn.execute(text("SELECT id, access_token, api_secret FROM broker_tokens"))).fetchall()
@@ -129,6 +139,8 @@ async def init_database():
                 existing_cfg.target_capital_pct = DEFAULT_TARGET_CAPITAL_PCT
             if existing_cfg.lot_size == 25:
                 existing_cfg.lot_size = 65
+            if not existing_cfg.total_capital or existing_cfg.total_capital < 50000:
+                existing_cfg.total_capital = DEFAULT_TOTAL_CAPITAL
 
         # Broker token record
         res_token = await session.execute(select(BrokerToken).limit(1))
@@ -173,6 +185,13 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("Initializing Upstox Algo Trading Engine database schema...")
     await init_database()
+    logger.info("Running startup broker position reconciliation...")
+    try:
+        async with AsyncSessionLocal() as session:
+            from backend.app.services.strategy_service import strategy_service
+            await strategy_service.startup_reconcile_positions(session)
+    except Exception as e:
+        logger.warning(f"Startup position reconciliation note: {str(e)}")
     logger.info("Starting Nifty Directional automated background worker...")
     worker_task = asyncio.create_task(background_strategy_worker())
     logger.info("Trading engine is ready to accept requests.")

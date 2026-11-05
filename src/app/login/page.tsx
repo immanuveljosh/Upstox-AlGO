@@ -40,16 +40,17 @@ export default function LoginPage() {
       if (data.connection_status === "connected" && data.data?.authorization_url) {
         window.location.href = data.data.authorization_url;
       } else {
-        // Fallback directly to Upstox OAuth endpoint with configured defaults
-        const clientId = "22e100c2-59e7-4d4d-98a0-d69ae3b08c87";
-        const fallbackUrl = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
-        window.location.href = fallbackUrl;
+        setErrorMsg(
+          data.message ||
+            "Could not retrieve authorization URL. Configure your Upstox API credentials in Settings."
+        );
+        setIsLoading(false);
       }
     } catch {
-      // In case backend is not reached yet, navigate directly to Upstox login dialog
-      const clientId = "22e100c2-59e7-4d4d-98a0-d69ae3b08c87";
-      const directUrl = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}`;
-      window.location.href = directUrl;
+      setErrorMsg(
+        "Failed to connect to backend server. Ensure the backend is running at http://localhost:8000."
+      );
+      setIsLoading(false);
     }
   };
 
@@ -75,10 +76,8 @@ export default function LoginPage() {
         setIsLoading(false);
       }
     } catch {
-      // Fallback for offline/standalone demo
-      setTimeout(() => {
-        router.push("/?auth=connected");
-      }, 700);
+      setErrorMsg("Could not connect to backend server. Access token was not verified.");
+      setIsLoading(false);
     }
   };
 

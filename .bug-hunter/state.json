@@ -1,0 +1,760 @@
+{
+  "schemaVersion": 3,
+  "generation": 13,
+  "mode": "local-sequential",
+  "createdAt": "2026-11-05T10:16:23.603Z",
+  "updatedAt": "2026-11-05T10:27:55.381Z",
+  "chunkSize": 27,
+  "maxSourceTokens": 48000,
+  "enforceTokenBudget": true,
+  "runtime": {
+    "parallelDisabled": false
+  },
+  "metrics": {
+    "filesTotal": 84,
+    "filesScanned": 0,
+    "chunksTotal": 4,
+    "chunksDone": 4,
+    "findingsTotal": 8,
+    "findingsUnique": 8,
+    "lowConfidenceFindings": 0
+  },
+  "chunks": [
+    {
+      "id": "chunk-1",
+      "files": [
+        "backend\\app\\api\\v1\\auth.py",
+        "backend\\app\\core\\security.py",
+        "backend\\app\\models\\broker_token.py",
+        "src\\app\\auth\\callback\\page.tsx",
+        "src\\app\\login\\page.tsx",
+        "backend\\app\\api\\deps.py",
+        "backend\\app\\api\\v1\\broker.py",
+        "backend\\app\\api\\v1\\market.py",
+        "backend\\app\\api\\v1\\orders.py",
+        "backend\\app\\api\\v1\\pnl.py",
+        "backend\\app\\api\\v1\\risk.py",
+        "backend\\app\\api\\v1\\router.py",
+        "backend\\app\\api\\v1\\settings.py",
+        "backend\\app\\api\\v1\\strategy.py",
+        "backend\\app\\api\\v1\\strategy_intelligence.py",
+        "backend\\app\\core\\database.py",
+        "backend\\app\\main.py",
+        "backend\\app\\models\\__init__.py",
+        "backend\\app\\models\\backtest.py",
+        "backend\\app\\models\\base.py",
+        "backend\\app\\models\\order.py",
+        "backend\\app\\models\\system_config.py",
+        "backend\\app\\models\\trade.py",
+        "backend\\app\\services\\broker_service.py",
+        "backend\\app\\services\\market_service.py",
+        "backend\\app\\services\\order_service.py",
+        "backend\\app\\services\\pnl_service.py"
+      ],
+      "estimatedSourceTokens": 47648,
+      "oversized": false,
+      "status": "done",
+      "retries": 1,
+      "startedAt": "2026-11-05T10:18:18.081Z",
+      "completedAt": "2026-11-05T10:23:06.742Z",
+      "lastError": null
+    },
+    {
+      "id": "chunk-2",
+      "files": [
+        "backend\\app\\services\\risk_service.py",
+        "backend\\app\\services\\strategy_intelligence_service.py",
+        "backend\\app\\services\\strategy_service.py",
+        "backend\\app\\services\\upstox_client.py",
+        "backend\\app\\core\\config.py",
+        "backend\\app\\core\\exceptions.py",
+        "backend\\app\\core\\logging.py",
+        "backend\\app\\schemas\\broker.py",
+        "backend\\app\\schemas\\common.py",
+        "backend\\app\\schemas\\market.py",
+        "backend\\app\\schemas\\order.py",
+        "backend\\app\\schemas\\pnl.py",
+        "backend\\app\\schemas\\risk.py",
+        "backend\\app\\schemas\\settings.py",
+        "backend\\app\\schemas\\strategy.py",
+        "backend\\app\\schemas\\strategy_intelligence.py",
+        "backend\\app\\strategy\\__init__.py",
+        "backend\\app\\strategy\\nifty_directional.py",
+        "backend\\run.py",
+        "next-env.d.ts",
+        "next.config.mjs",
+        "postcss.config.js"
+      ],
+      "estimatedSourceTokens": 45991,
+      "oversized": false,
+      "status": "done",
+      "retries": 1,
+      "startedAt": "2026-11-05T10:23:18.681Z",
+      "completedAt": "2026-11-05T10:25:38.038Z",
+      "lastError": null
+    },
+    {
+      "id": "chunk-3",
+      "files": [
+        "src\\app\\backtest\\page.tsx",
+        "src\\app\\layout.tsx",
+        "src\\app\\orders\\page.tsx",
+        "src\\app\\page.tsx",
+        "src\\app\\pnl\\page.tsx",
+        "src\\app\\settings\\page.tsx",
+        "src\\app\\strategy\\page.tsx",
+        "src\\components\\dashboard\\LotSizeCalculator.tsx",
+        "src\\components\\dashboard\\ManualOrderPanel.tsx",
+        "src\\components\\dashboard\\NiftyLivePrice.tsx",
+        "src\\components\\dashboard\\PositionCard.tsx",
+        "src\\components\\dashboard\\QuickStats.tsx",
+        "src\\components\\layout\\ShellLayout.tsx",
+        "src\\components\\layout\\Sidebar.tsx",
+        "src\\components\\layout\\TopBar.tsx",
+        "src\\components\\orders\\OrderTable.tsx",
+        "src\\components\\pnl\\EquityCurveChart.tsx",
+        "src\\components\\pnl\\MonthlyBreakdown.tsx",
+        "src\\components\\pnl\\PnlMetrics.tsx"
+      ],
+      "estimatedSourceTokens": 40574,
+      "oversized": false,
+      "status": "done",
+      "retries": 1,
+      "startedAt": "2026-11-05T10:26:08.807Z",
+      "completedAt": "2026-11-05T10:26:47.641Z",
+      "lastError": null
+    },
+    {
+      "id": "chunk-4",
+      "files": [
+        "src\\components\\settings\\BrokerSettings.tsx",
+        "src\\components\\settings\\KillSwitchSettings.tsx",
+        "src\\components\\settings\\RiskSettings.tsx",
+        "src\\components\\ui\\ConnectionBadge.tsx",
+        "src\\components\\ui\\DisconnectedNotice.tsx",
+        "src\\components\\ui\\KillSwitchButton.tsx",
+        "src\\components\\ui\\KillSwitchModal.tsx",
+        "src\\components\\ui\\ModeToggle.tsx",
+        "src\\components\\ui\\ToastContainer.tsx",
+        "src\\context\\TradingContext.tsx",
+        "src\\lib\\format.ts",
+        "src\\lib\\mockData.ts",
+        "src\\lib\\pnlNormalizer.ts",
+        "src\\lib\\utils.ts",
+        "src\\types\\trading.ts",
+        "tailwind.config.ts"
+      ],
+      "estimatedSourceTokens": 36679,
+      "oversized": false,
+      "status": "done",
+      "retries": 1,
+      "startedAt": "2026-11-05T10:27:00.157Z",
+      "completedAt": "2026-11-05T10:27:55.380Z",
+      "lastError": null
+    }
+  ],
+  "fileStates": {
+    "backend\\app\\api\\v1\\auth.py": {
+      "status": "pending",
+      "initialHash": "08ba94d71ec1ea1b2bedba55af270d13b38f7f0ce4321fc157dcd66a36e13ada",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\core\\security.py": {
+      "status": "pending",
+      "initialHash": "d5d15a8a466b0c21926d9af027744afd752897182e58b87fa28e62b297ba201b",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\models\\broker_token.py": {
+      "status": "pending",
+      "initialHash": "c2edad5425448e964531097b89ce0ae84c17399ad049b358006a2643fc600e0e",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\app\\auth\\callback\\page.tsx": {
+      "status": "pending",
+      "initialHash": "9018de0377c337a768d324d71d8f678a5bae5b9bf41210f30082a30f39fde804",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\app\\login\\page.tsx": {
+      "status": "pending",
+      "initialHash": "4fd46907e6a773940718269d82fcbdd3fedba957ab568dc6e5035114f83986cc",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\api\\deps.py": {
+      "status": "pending",
+      "initialHash": "931c20a7be34a609a6b5a4f40ffe03ca5aca6d02739482b559e9b09eb247f4f0",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\api\\v1\\broker.py": {
+      "status": "pending",
+      "initialHash": "81add76017e6a39dde54e35e472299084c255ec875a02d56bcb8f4b72f4a3871",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\api\\v1\\market.py": {
+      "status": "pending",
+      "initialHash": "1108be8c2f032a2d781fd3b57f1fc61afbf4516312a1fbabd6b46fc49af85d55",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\api\\v1\\orders.py": {
+      "status": "pending",
+      "initialHash": "496461753d93873ed044797e2890323de5a5cc5b4457879f4cb7d436ad3b1ab8",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\api\\v1\\pnl.py": {
+      "status": "pending",
+      "initialHash": "dfc09062f6f2449cab1c5f4726e71558cf96e36299d962280ffc9e002dc5fcf0",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\api\\v1\\risk.py": {
+      "status": "pending",
+      "initialHash": "0747b8534040da0bf070f6cb675734395f669ac5e214b51feee8cb8d63b48d92",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\api\\v1\\router.py": {
+      "status": "pending",
+      "initialHash": "3271021c7a24120e50bf6836348baf99901fd9c8b78c86e9289cb3a2aa180ce5",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\api\\v1\\settings.py": {
+      "status": "pending",
+      "initialHash": "536afbed4340a9ed13221a15374a82cbbba3dec719112e5c69966a48113d6a6a",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\api\\v1\\strategy.py": {
+      "status": "pending",
+      "initialHash": "25c6926664098bb90d9e47e83530b6749bd103f4def7b70d52791fe553e1dccd",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\api\\v1\\strategy_intelligence.py": {
+      "status": "pending",
+      "initialHash": "c95e6d207fd2e58a4c277f867914cb454d64dbe0a272e96c32f3d5e502b20a57",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\core\\database.py": {
+      "status": "pending",
+      "initialHash": "01af7c530a6e9abe8a43184787704a7e10a74942fb12672136ebc1262a8b7926",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\main.py": {
+      "status": "pending",
+      "initialHash": "9f20677129fd07cc590d1a511882abf5209a46a481edf2ccc2fdab45fb2d3ed5",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\models\\__init__.py": {
+      "status": "pending",
+      "initialHash": "3a80b4139edbbfd47d3776072f964d14b698c9336f4982f9dba87e1195c067d2",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\models\\backtest.py": {
+      "status": "pending",
+      "initialHash": "54c0ca45d487dd31c635cc5d8e4800ead0cdca7a719755049c3513c9a1345917",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\models\\base.py": {
+      "status": "pending",
+      "initialHash": "b2b3378dc3a3052b813ad7c1b02b7b96b984b2df6c652266d4001f5bf8656138",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\models\\order.py": {
+      "status": "pending",
+      "initialHash": "0f676b5283e2e7fbb7885d8952096a931ec4e99b3cf2d1a2a05ed8de96b214f3",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\models\\system_config.py": {
+      "status": "pending",
+      "initialHash": "ca7e596b7238593d4a466f2f9dbdafa4c96db159a6eed97d1dfac46084539375",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\models\\trade.py": {
+      "status": "pending",
+      "initialHash": "d5fa7e6bd2274fe2babe87e228f4465ae9a198f0f94b12561a9a297c343f188e",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\services\\broker_service.py": {
+      "status": "pending",
+      "initialHash": "fced9e89507439c4838c9f4a7de1ddc4fe1f3f80650b73a48cf406ea1b51e976",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\services\\market_service.py": {
+      "status": "pending",
+      "initialHash": "3a9ab8bcf6b261373f572c42c82b5b8bdc3cdd350ac3d9a6172a68a85960461a",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\services\\order_service.py": {
+      "status": "pending",
+      "initialHash": "9edc4b0bc2b063660d9a1646d8ae8d769557e12703896b42b0a1c7f5ad4be25c",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\services\\pnl_service.py": {
+      "status": "pending",
+      "initialHash": "92157776e6c622476196bb8695aea6580842e516c71707e5e8ce63399a4dc6e3",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\services\\risk_service.py": {
+      "status": "pending",
+      "initialHash": "66fb23db1ea2c416e03cbffd2bb002b69cf61a34cb3c799c81131de40a7574d0",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\services\\strategy_intelligence_service.py": {
+      "status": "pending",
+      "initialHash": "547816a805e04f397e4ff0363ca139b85e8fe043857cd90c2c54382c77be05d7",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\services\\strategy_service.py": {
+      "status": "pending",
+      "initialHash": "f113a0dc0cead6f47fa82d67da7fd861ee644329225488ead3d5d9f2f53f75ed",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\services\\upstox_client.py": {
+      "status": "pending",
+      "initialHash": "85683994ec1395226375c560d2681bd86efd50392968265977d511b6021487ca",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\core\\config.py": {
+      "status": "pending",
+      "initialHash": "65b97ca81a881f1dd4a51c066ada685b421c323693f2efd0456a4f0f735364df",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\core\\exceptions.py": {
+      "status": "pending",
+      "initialHash": "798c874eef02626d9470efae2bd25de52268733b52f3229e20c69cbb8613833b",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\core\\logging.py": {
+      "status": "pending",
+      "initialHash": "d13d70a689be578068b06bcb5adb43f32d680a900207f1ba1317843a868abca8",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\schemas\\broker.py": {
+      "status": "pending",
+      "initialHash": "a094f60f022fe7bf626ef7a335f9e445d1f69bc143c703335be89f1b76257006",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\schemas\\common.py": {
+      "status": "pending",
+      "initialHash": "5bdf42e6d5ae4694d8aee8cee62ac26c4da092e77c61753d1247548b1b7f16ef",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\schemas\\market.py": {
+      "status": "pending",
+      "initialHash": "ef2e65d31883d6364ff2557211bf7ef585050dbdeea0ed44f692b8d7f2dd86e8",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\schemas\\order.py": {
+      "status": "pending",
+      "initialHash": "50475abe9780fba6fbaedbda5198a4ec4b6d52dd7127af4a91a97a0b69bd568e",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\schemas\\pnl.py": {
+      "status": "pending",
+      "initialHash": "eb9fc90b9c778f98cb8eddd71c0214018e34cd5580af71b80fc7913254915cc0",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\schemas\\risk.py": {
+      "status": "pending",
+      "initialHash": "b0af082cb80f52b0fd4e4d00ea29c97e5bf90fcf8a7657e533448e0b60c28610",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\schemas\\settings.py": {
+      "status": "pending",
+      "initialHash": "1b1a0406edf5e2e9c3ca61e847edf657b8d50d026f0f25fee019bf0f2fb47a4e",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\schemas\\strategy.py": {
+      "status": "pending",
+      "initialHash": "9b76a55e623772d9109d3a095c54aca25e5ac89442308beb4d35127b676d5645",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\schemas\\strategy_intelligence.py": {
+      "status": "pending",
+      "initialHash": "b1599d85864be6ad200ab6cf78a07527b871c137451f9f7a257ddea4faed9df9",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\strategy\\__init__.py": {
+      "status": "pending",
+      "initialHash": "e2875e45cad6804af33773afde7ade1817b2a8e887ef4193ca32398299938aef",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\app\\strategy\\nifty_directional.py": {
+      "status": "pending",
+      "initialHash": "b485ddd953f0b850ea4c8ad103693caeedffa4c10ff134f311452378465016f5",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "backend\\run.py": {
+      "status": "pending",
+      "initialHash": "23a6be22ec3fad7e4bcdc4f5211ef16e162618afbce32f1bdf33501cce2c6328",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "next-env.d.ts": {
+      "status": "pending",
+      "initialHash": "e462a655754db9df18b4a657454a7b6a88717ffded4e89403b2b3a47c6603fc3",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "next.config.mjs": {
+      "status": "pending",
+      "initialHash": "e81b0c9414263296a988be72b8890b0756649466e809724c3a1f506f3702fa00",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "postcss.config.js": {
+      "status": "pending",
+      "initialHash": "37ff855725222980850caa368f4deb125497c3966c2ded538c30f7b86d2cb28c",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\app\\backtest\\page.tsx": {
+      "status": "pending",
+      "initialHash": "72ea26a731841df399f7a14dcf6bf8e386a6282d43e4cbf6e52d74e05a1735c9",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\app\\layout.tsx": {
+      "status": "pending",
+      "initialHash": "8dec5f7e1c30bd8dce6be12e4779a65060937fdcb1d58b5f49ce0d1fd1e750af",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\app\\orders\\page.tsx": {
+      "status": "pending",
+      "initialHash": "9fc2f3447b07d27cdf0d745c45780fe6524defec2c72d76ccfead6caa0d6f5c3",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\app\\page.tsx": {
+      "status": "pending",
+      "initialHash": "7b7cbb165bb2038c3ac28fe490c3e237cedee05c26c11b790e227c40661ee236",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\app\\pnl\\page.tsx": {
+      "status": "pending",
+      "initialHash": "3907449667e113f229fead5bd04bb54247768a0674360a773d9e632231143b71",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\app\\settings\\page.tsx": {
+      "status": "pending",
+      "initialHash": "089080958d78a3954feec53a3a0d31050673bc6e6913cca37c5679175e84c466",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\app\\strategy\\page.tsx": {
+      "status": "pending",
+      "initialHash": "ff3e80e23ebb4df15f2fae4b9fa4ccf66f1b3ec353c333d6c7f63a1b8a765e60",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\dashboard\\LotSizeCalculator.tsx": {
+      "status": "pending",
+      "initialHash": "4ffa8186963f82e4f78e0a1a444cd664e537d17b1009120e5c1335f09f72b5d1",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\dashboard\\ManualOrderPanel.tsx": {
+      "status": "pending",
+      "initialHash": "8407cc299a880d41a8e1cbb2125eab6628e16546e28bed540de6d65f0bcc4cf8",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\dashboard\\NiftyLivePrice.tsx": {
+      "status": "pending",
+      "initialHash": "27fbf1c35c33b6e07057d9ace3173492581ac05482cc2f67f9ab68e493ede389",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\dashboard\\PositionCard.tsx": {
+      "status": "pending",
+      "initialHash": "5e8cfa7036a3d6d5e32e9fd940cf86c1c09d13081ad328c636f7346805e64703",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\dashboard\\QuickStats.tsx": {
+      "status": "pending",
+      "initialHash": "8ea12fb31eabde9ddc2ec30a1f432df7f43c4a2cdbf0dfd3a6c53560a0905071",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\layout\\ShellLayout.tsx": {
+      "status": "pending",
+      "initialHash": "8b151cae78356bb763e6871edbefbd42749bdf7c9311997434553d6c968bb31c",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\layout\\Sidebar.tsx": {
+      "status": "pending",
+      "initialHash": "ee029f013ee00ea28c8140a3b65812478dc54c56a6b6ad92babf10cf60166eef",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\layout\\TopBar.tsx": {
+      "status": "pending",
+      "initialHash": "61b74c252d5a09819a0909684f0dca45bedc0c262f09e225a7276d908773eb5c",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\orders\\OrderTable.tsx": {
+      "status": "pending",
+      "initialHash": "d703b717bf3ce86558456d6448f3cba20eaa1bc6d2a95ca745b2ca6cb3a32fde",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\pnl\\EquityCurveChart.tsx": {
+      "status": "pending",
+      "initialHash": "0899d6a7b991a5f36bf751b54847347eb66f72162dc4ea8d9c75b1ce0948cfa7",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\pnl\\MonthlyBreakdown.tsx": {
+      "status": "pending",
+      "initialHash": "86d9bfe6bfc96b34710473b84554a918260cb633a2c6550ecfd8410fcaa54c7a",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\pnl\\PnlMetrics.tsx": {
+      "status": "pending",
+      "initialHash": "b93500a64ceb7d91b7aebc8fe6a4fdbad525f6afbcde3e5467bf2f9225491178",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\settings\\BrokerSettings.tsx": {
+      "status": "pending",
+      "initialHash": "9d9538ded8bc96defd0500801bdac8523bfd594543961673f1d7875e32341379",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\settings\\KillSwitchSettings.tsx": {
+      "status": "pending",
+      "initialHash": "03d3854ce915c6c00b0625efff7c6fc4dcf92372e48b8491366e5c31ea25d95b",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\settings\\RiskSettings.tsx": {
+      "status": "pending",
+      "initialHash": "427d5e2f26821cf10cd6d33bf9d2c00035b4ac9a6470c277cb8353814b9ee05a",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\ui\\ConnectionBadge.tsx": {
+      "status": "pending",
+      "initialHash": "c557909bfeb7be8553a41e5a6094046261bfe894d72ad758fe14e6fa2b3a9784",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\ui\\DisconnectedNotice.tsx": {
+      "status": "pending",
+      "initialHash": "6715a3764e04ae5ad5c3df492c8847bfacd77cf5597b1e4deea4d23c485e909f",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\ui\\KillSwitchButton.tsx": {
+      "status": "pending",
+      "initialHash": "85c9aaed4875b4765fb3e60e3b9004d156d30033c785da968588708d00c09ad5",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\ui\\KillSwitchModal.tsx": {
+      "status": "pending",
+      "initialHash": "a99afc09943a283f41e308be0dd4065436708579cccc72769a8b1850359afd42",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\ui\\ModeToggle.tsx": {
+      "status": "pending",
+      "initialHash": "e7f809fc9cf0be21c1ae442b0fb83bc0c94271c00e6414cee5f0eedcd13634eb",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\components\\ui\\ToastContainer.tsx": {
+      "status": "pending",
+      "initialHash": "79ff07ac7f4f0f922fb4d5b938077461d3841d89c0db4e0854b8cab36066e995",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\context\\TradingContext.tsx": {
+      "status": "pending",
+      "initialHash": "9fc3189859e25caac746a6c154145ad06f3d0a7b6a9f03aa504ed98efd9af615",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\lib\\format.ts": {
+      "status": "pending",
+      "initialHash": "ca6711d5ab18f3f01f71c9488cb99f9adfd981d809aa4a20ed6b6955ca73aa45",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\lib\\mockData.ts": {
+      "status": "pending",
+      "initialHash": "463c4588a0efe1689b74bb98104609412bc9f2b87e51f59548175b23f08bfa0b",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\lib\\pnlNormalizer.ts": {
+      "status": "pending",
+      "initialHash": "1f75ea164470838c113cc68994395e2f0331ed2c38852d03f94b3f78584367e2",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\lib\\utils.ts": {
+      "status": "pending",
+      "initialHash": "ed5210971c39c6ced69cf3c136bc2d52b1c8f759b30854f5231eff3ddce7934a",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "src\\types\\trading.ts": {
+      "status": "pending",
+      "initialHash": "80f8d7aeacd619ddc2c1f38020b3eae61694bab0aefba16d44d0dde0c56ebe82",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    },
+    "tailwind.config.ts": {
+      "status": "pending",
+      "initialHash": "7b1d5de46ec46245b9ea8be7230f414b2fe43dae6d7a6b85a576379d38d99388",
+      "updatedAt": "2026-11-05T10:16:23.603Z"
+    }
+  },
+  "bugLedger": [
+    {
+      "key": "backend/app/api/v1/auth.py|363-425|Unauthenticated SSRF vulnerability in webhook validation endpoint with disabled TLS verification allows probing internal networks.",
+      "bugId": "BUG-1",
+      "severity": "High",
+      "file": "backend/app/api/v1/auth.py",
+      "lines": "363-425",
+      "category": "security",
+      "claim": "Unauthenticated SSRF vulnerability in webhook validation endpoint with disabled TLS verification allows probing internal networks.",
+      "evidence": "In backend/app/api/v1/auth.py:363-425, the endpoint POST /api/v1/auth/webhook/validate is unauthenticated and accepts a user-controlled URL payload without restricting target hosts to public IP ranges (it only checks for literal localhost/127.0.0.1/0.0.0.0 strings). It then executes httpx.get with verify=False, allowing arbitrary internal network probing (e.g. AWS/GCP cloud metadata services, internal HTTPS APIs).",
+      "runtimeTrigger": "POST /api/v1/auth/webhook/validate with {\"url\": \"https://169.254.169.254/api/v1/auth/upstox/notifier\"}",
+      "crossReferences": [
+        "backend/app/services/broker_service.py:220-226"
+      ],
+      "confidenceScore": 92,
+      "confidenceLabel": "high",
+      "stride": "Tampering",
+      "cwe": "CWE-918",
+      "status": "open",
+      "source": "local-sequential",
+      "updatedAt": "2026-11-05T10:23:01.823Z"
+    },
+    {
+      "key": "backend/app/services/order_service.py|338-366|Order cancellation passes internal client_order_id to Upstox API instead of Upstox order_id, causing Upstox OMS order cancellation to fail silently while marking order as cancelled locally.",
+      "bugId": "BUG-2",
+      "severity": "High",
+      "file": "backend/app/services/order_service.py",
+      "lines": "338-366",
+      "category": "api-contract",
+      "claim": "Order cancellation passes internal client_order_id to Upstox API instead of Upstox order_id, causing Upstox OMS order cancellation to fail silently while marking order as cancelled locally.",
+      "evidence": "In backend/app/services/order_service.py:350, cancel_order invokes upstox_client.cancel_order with order_id, which is the internal client_order_id (e.g. UPX-XXXXXXXX). Upstox rejects the non-numeric order ID with 400 Bad Request, the exception is caught and swallowed in line 352 (logger.warning), and line 358 marks db_order.status = 'CANCELLED' locally, falsely reporting the order as successfully cancelled while it remains active on the exchange.",
+      "runtimeTrigger": "DELETE /api/v1/orders/UPX-A1B2C3D4",
+      "crossReferences": [
+        "backend/app/api/v1/orders.py:79-85",
+        "backend/app/services/upstox_client.py:215-222"
+      ],
+      "confidenceScore": 96,
+      "confidenceLabel": "high",
+      "stride": "N/A",
+      "cwe": "N/A",
+      "status": "open",
+      "source": "local-sequential",
+      "updatedAt": "2026-11-05T10:23:01.824Z"
+    },
+    {
+      "key": "backend/app/services/order_service.py|38-46|Race condition in daily trade limit check allows multiple concurrent order placements, violating the strategy invariant of maximum 1 trade per day.",
+      "bugId": "BUG-3",
+      "severity": "High",
+      "file": "backend/app/services/order_service.py",
+      "lines": "38-46",
+      "category": "concurrency",
+      "claim": "Race condition in daily trade limit check allows multiple concurrent order placements, violating the strategy invariant of maximum 1 trade per day.",
+      "evidence": "In backend/app/services/order_service.py:38-46 and 124-126, place_directional_order checks config.trades_executed_today >= config.max_trades_per_day without an asyncio lock or database-level row lock (FOR UPDATE). Two concurrent requests arriving at 09:15:00 both read trades_executed_today as 0, both execute live orders with Upstox OMS, and both increment the count, exceeding the strict 1 trade per day strategy limit.",
+      "runtimeTrigger": "Concurrent HTTP POST requests to /api/v1/orders/directional within the same millisecond at 09:15:00",
+      "crossReferences": [
+        "backend/app/api/v1/orders.py:13-35",
+        "backend/app/models/system_config.py:28-30"
+      ],
+      "confidenceScore": 89,
+      "confidenceLabel": "high",
+      "stride": "N/A",
+      "cwe": "N/A",
+      "status": "open",
+      "source": "local-sequential",
+      "updatedAt": "2026-11-05T10:23:01.824Z"
+    },
+    {
+      "key": "src/app/login/page.tsx|44-51|Hardcoded Upstox Client ID in frontend login fallback leaks credential into client bundle.",
+      "bugId": "BUG-4",
+      "severity": "Medium",
+      "file": "src/app/login/page.tsx",
+      "lines": "44-51",
+      "category": "security",
+      "claim": "Hardcoded Upstox Client ID in frontend login fallback leaks credential into client bundle.",
+      "evidence": "In src/app/login/page.tsx:44 and 50, client ID '22e100c2-59e7-4d4d-98a0-d69ae3b08c87' is hardcoded as fallback in the client-side component code instead of being provided dynamically from backend configuration or environment variables.",
+      "runtimeTrigger": "Inspecting the compiled frontend bundle or network requests on fallback login triggers",
+      "crossReferences": [
+        "Single file"
+      ],
+      "confidenceScore": 88,
+      "confidenceLabel": "high",
+      "stride": "InfoDisclosure",
+      "cwe": "CWE-798",
+      "status": "open",
+      "source": "local-sequential",
+      "updatedAt": "2026-11-05T10:23:01.824Z"
+    },
+    {
+      "key": "src/app/login/page.tsx|77-82|Client-side authentication bypass routes unauthenticated users to connected dashboard upon backend network or API failure.",
+      "bugId": "BUG-5",
+      "severity": "High",
+      "file": "src/app/login/page.tsx",
+      "lines": "77-82",
+      "category": "security",
+      "claim": "Client-side authentication bypass routes unauthenticated users to connected dashboard upon backend network or API failure.",
+      "evidence": "In src/app/login/page.tsx:77-82, when manual token verification fails due to a network error or backend unreachable, the catch block executes setTimeout(() => { router.push('/?auth=connected'); }, 700);, bypassing authentication and redirecting the unverified user to the connected state.",
+      "runtimeTrigger": "Submitting a token in manual auth mode when backend is unreachable or returns a network error",
+      "crossReferences": [
+        "Single file"
+      ],
+      "confidenceScore": 94,
+      "confidenceLabel": "high",
+      "stride": "ElevationOfPrivilege",
+      "cwe": "CWE-306",
+      "status": "open",
+      "source": "local-sequential",
+      "updatedAt": "2026-11-05T10:23:01.824Z"
+    },
+    {
+      "key": "backend/app/services/strategy_service.py|1023-1049|Automated position square-off passes invalid instrument_token to Upstox OMS and swallows order rejection, leaving live positions unclosed while marking them CLOSED locally.",
+      "bugId": "BUG-6",
+      "severity": "Critical",
+      "file": "backend/app/services/strategy_service.py",
+      "lines": "1023-1049",
+      "category": "api-contract",
+      "claim": "Automated position square-off passes invalid instrument_token to Upstox OMS and swallows order rejection, leaving live positions unclosed while marking them CLOSED locally.",
+      "evidence": "In backend/app/services/strategy_service.py:1029, run_monitoring_tick constructs the exit order payload with '\"instrument_token\": f\"NSE_FO|{open_order.symbol}\"'. However, open_order.symbol is the human-readable trading symbol (e.g. 'NIFTY 24500 CE' or 'NIFTY26NOV24500CE'), whereas Upstox API v2 requires an exchange instrument_token (e.g. 'NSE_FO|52345'). Upstox OMS rejects the exit order, the exception is swallowed in line 1037 (logger.error), and line 1040 sets open_order.status = 'CLOSED' in the local database. The real position remains open with no stop loss protection.",
+      "runtimeTrigger": "A live position hits the 4% Capital Stop Loss, 5% Capital Target, or 15:15 IST auto square-off during run_monitoring_tick",
+      "crossReferences": [
+        "backend/app/services/order_service.py:108",
+        "backend/app/services/upstox_client.py:195-204"
+      ],
+      "confidenceScore": 96,
+      "confidenceLabel": "high",
+      "stride": "N/A",
+      "cwe": "N/A",
+      "status": "open",
+      "source": "local-sequential",
+      "updatedAt": "2026-11-05T10:25:31.871Z"
+    },
+    {
+      "key": "backend/app/services/strategy_service.py|990-1002|Position monitoring queries live option quotes using trading symbol instead of instrument key, preventing real-time Stop Loss and Target tracking.",
+      "bugId": "BUG-7",
+      "severity": "High",
+      "file": "backend/app/services/strategy_service.py",
+      "lines": "990-1002",
+      "category": "api-contract",
+      "claim": "Position monitoring queries live option quotes using trading symbol instead of instrument key, preventing real-time Stop Loss and Target tracking.",
+      "evidence": "In backend/app/services/strategy_service.py:995, run_monitoring_tick attempts to fetch market quotes via 'upstox_client.get_market_quote(token_record.access_token, open_order.symbol)'. Upstox market quote endpoint requires valid instrument_keys (e.g. 'NSE_FO|52345'), but open_order.symbol contains the trading symbol string (e.g. 'NIFTY 24500 CE'). The API returns an error or empty dictionary, leaving current_ltp defaulted to open_order.price, meaning live P&L never updates and stop loss / target limits are never triggered during the trading day.",
+      "runtimeTrigger": "Monitoring open positions in LIVE mode during market hours",
+      "crossReferences": [
+        "backend/app/services/upstox_client.py:242-250",
+        "backend/app/models/order.py:15"
+      ],
+      "confidenceScore": 94,
+      "confidenceLabel": "high",
+      "stride": "N/A",
+      "cwe": "N/A",
+      "status": "open",
+      "source": "local-sequential",
+      "updatedAt": "2026-11-05T10:25:31.872Z"
+    },
+    {
+      "key": "src/components/settings/KillSwitchSettings.tsx|17-21|KillSwitchSettings calls non-existent endpoint /api/v1/strategy/square-off causing emergency square-off requests to fail with HTTP 404.",
+      "bugId": "BUG-8",
+      "severity": "High",
+      "file": "src/components/settings/KillSwitchSettings.tsx",
+      "lines": "17-21",
+      "category": "api-contract",
+      "claim": "KillSwitchSettings calls non-existent endpoint /api/v1/strategy/square-off causing emergency square-off requests to fail with HTTP 404.",
+      "evidence": "In src/components/settings/KillSwitchSettings.tsx:17, handleEmergencySquareOff sends a POST request to 'http://localhost:8000/api/v1/strategy/square-off'. The backend routes only define emergency liquidation under '/api/v1/risk/kill-switch' (in backend/app/api/v1/risk.py:11) and '/api/v1/orders/exit-all' (in backend/app/api/v1/orders.py:43). The call consistently returns HTTP 404 Not Found, failing emergency square-off and leaving live exchange positions open.",
+      "runtimeTrigger": "Clicking 'Square Off All Positions' button in the Safeguards / Kill Switch settings tab",
+      "crossReferences": [
+        "backend/app/api/v1/risk.py:11-19",
+        "backend/app/api/v1/orders.py:43-49"
+      ],
+      "confidenceScore": 96,
+      "confidenceLabel": "high",
+      "stride": "N/A",
+      "cwe": "N/A",
+      "status": "open",
+      "source": "local-sequential",
+      "updatedAt": "2026-11-05T10:27:50.500Z"
+    }
+  ],
+  "hashCache": {},
+  "factCards": {},
+  "consistency": {
+    "checkedAt": null,
+    "conflicts": []
+  },
+  "fixPlan": null
+}

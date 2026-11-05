@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import ipaddress
 import json
 import time
 from datetime import datetime, timedelta
@@ -55,6 +56,9 @@ class BrokerService:
                     ("signal_time", "DATETIME"),
                     ("broker_confirmed_at", "DATETIME"),
                     ("exit_reason", "VARCHAR(100)"),
+                    ("instrument_key", "VARCHAR(100)"),
+                    ("exit_upstox_order_id", "VARCHAR(100)"),
+                    ("exit_status", "VARCHAR(50)"),
                 ]:
                     try:
                         await conn.execute(text(f"ALTER TABLE orders ADD COLUMN {col_name} {col_type}"))
@@ -78,6 +82,15 @@ class BrokerService:
                 ]:
                     try:
                         await conn.execute(text(f"ALTER TABLE broker_tokens ADD COLUMN {col_name} {col_type}"))
+                    except Exception:
+                        pass
+
+                for col_name, col_type in [
+                    ("critical_alert", "VARCHAR(500)"),
+                    ("orphan_positions_json", "VARCHAR(4000)"),
+                ]:
+                    try:
+                        await conn.execute(text(f"ALTER TABLE system_configs ADD COLUMN {col_name} {col_type}"))
                     except Exception:
                         pass
             BrokerService._tables_initialized = True
@@ -223,6 +236,24 @@ class BrokerService:
                 "URL Invalid",
                 "Localhost URLs cannot receive webhooks from Upstox servers. Use a public HTTPS domain.",
             )
+
+        try:
+            ip_val = ipaddress.ip_address(host)
+            if (
+                ip_val.is_private
+                or ip_val.is_loopback
+                or ip_val.is_link_local
+                or ip_val.is_multicast
+                or ip_val.is_reserved
+                or ip_val.is_unspecified
+            ):
+                return (
+                    False,
+                    "URL Invalid",
+                    f"Restricted private or link-local IP addresses ({host}) cannot be used as a public webhook URL.",
+                )
+        except ValueError:
+            pass
 
         if scheme != "https":
             return (
@@ -457,6 +488,9 @@ class BrokerService:
                 mutated = True
             if config.lot_size == 25:
                 config.lot_size = settings.NIFTY_LOT_SIZE
+                mutated = True
+            if not config.total_capital or config.total_capital < 50000:
+                config.total_capital = DEFAULT_TOTAL_CAPITAL
                 mutated = True
             if mutated:
                 await db.commit()

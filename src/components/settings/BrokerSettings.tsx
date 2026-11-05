@@ -229,7 +229,7 @@ export function BrokerSettings() {
     if (!uuidRegex.test(keyToTest)) {
       const res = {
         valid: false,
-        message: "Client ID must be a valid 36-character UUID (e.g., 22e100c2-59e7-4d4d-98a0-d69ae3b08c87).",
+        message: "Client ID must be a valid 36-character UUID (e.g., xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).",
       };
       setTestResult(res);
       addToast({ type: "error", title: "Format Error", message: res.message });
@@ -340,12 +340,28 @@ export function BrokerSettings() {
       if (res.ok && json.data?.authorization_url) {
         window.location.href = json.data.authorization_url;
       } else {
-        const cid = apiKey || data?.api_key || "22e100c2-59e7-4d4d-98a0-d69ae3b08c87";
+        const cid = (apiKey || data?.api_key || "").trim();
+        if (!cid) {
+          addToast({
+            type: "error",
+            title: "Missing API Key",
+            message: "Configure your Upstox Client ID (API Key) before initiating OAuth login.",
+          });
+          return;
+        }
         const redUri = redirectUri || data?.redirect_uri || "http://localhost:8000/api/v1/auth/callback";
         window.location.href = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${cid}&redirect_uri=${encodeURIComponent(redUri)}`;
       }
     } catch {
-      const cid = apiKey || data?.api_key || "22e100c2-59e7-4d4d-98a0-d69ae3b08c87";
+      const cid = (apiKey || data?.api_key || "").trim();
+      if (!cid) {
+        addToast({
+          type: "error",
+          title: "Missing API Key",
+          message: "Configure your Upstox Client ID (API Key) before initiating OAuth login.",
+        });
+        return;
+      }
       const redUri = redirectUri || data?.redirect_uri || "http://localhost:8000/api/v1/auth/callback";
       window.location.href = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${cid}&redirect_uri=${encodeURIComponent(redUri)}`;
     }
@@ -711,7 +727,7 @@ export function BrokerSettings() {
                   type="text"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="22e100c2-59e7-4d4d-98a0-d69ae3b08c87"
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-xs focus:outline-none focus:border-emerald-500 transition-colors"
                 />
               </div>

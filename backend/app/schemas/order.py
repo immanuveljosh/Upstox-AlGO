@@ -44,12 +44,35 @@ class OrderItem(BaseModel):
     lot_size: int = 65
     qty: int
     price: float
-    status: Literal["PLACED", "CLOSED", "REJECTED", "CANCELLED"]
+    status: Literal["PLACED", "PENDING_EXIT", "CLOSED", "REJECTED", "CANCELLED"]
     mode: str
     pnl: Optional[float] = None
     exit_price: Optional[float] = None
     exit_time: Optional[str] = None
     reject_reason: Optional[str] = None
+    exit_status: Optional[str] = None
+    instrument_key: Optional[str] = None
+    exit_upstox_order_id: Optional[str] = None
+
+
+class OrphanPositionItem(BaseModel):
+    instrument_token: str
+    trading_symbol: str
+    quantity: int
+    product: str = "I"
+    pnl: float = 0.0
+    buy_price: float = 0.0
+    last_price: float = 0.0
+
+
+class OrphanPositionsResponse(BaseModel):
+    orphan_positions: List[OrphanPositionItem] = []
+    count: int = 0
+    warning: Optional[str] = None
+
+
+class OrphanActionRequest(BaseModel):
+    instrument_token: str
 
 
 class ExitAllResultData(BaseModel):

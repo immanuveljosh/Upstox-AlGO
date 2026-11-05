@@ -14,11 +14,11 @@ export function KillSwitchSettings() {
   const handleEmergencySquareOff = async () => {
     setIsSquaringOff(true);
     try {
-      const res = await fetch("http://localhost:8000/api/v1/strategy/square-off", {
+      const res = await fetch("http://localhost:8000/api/v1/orders/exit-all", {
         method: "POST",
       });
       const json = await res.json();
-      if (res.ok) {
+      if (res.ok && (json.status === "success" || json.connection_status === "connected")) {
         addToast({
           type: "warning",
           title: "Emergency Square-Off Complete",
@@ -34,13 +34,12 @@ export function KillSwitchSettings() {
           message: json.message || "Failed to execute emergency square-off.",
         });
       }
-    } catch {
-      // Local fallback
-      closeActivePosition();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to contact trading desk server.";
       addToast({
-        type: "warning",
-        title: "Positions Liquidated",
-        message: "Active positions squared off locally.",
+        type: "error",
+        title: "Square-Off Error",
+        message,
       });
     } finally {
       setIsSquaringOff(false);

@@ -5,8 +5,11 @@ import uuid
 from datetime import datetime, date, time, timedelta
 from dateutil.relativedelta import relativedelta
 from typing import Dict, Any, Tuple, Optional, List, Sequence
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
+
+from backend.app.core.config import settings
 
 from backend.app.models.system_config import SystemConfig
 from backend.app.models.order import Order
@@ -89,6 +92,169 @@ class StrategyService:
     - Stop Loss: 4% of total strategy capital
     - Target Profit: 5% of total strategy capital
     """
+
+    def __init__(self):
+        self._consecutive_auth_failures: int = 0
+
+    async def _send_telegram_alert(self, message: str) -> None:
+        """Sends an urgent notification to Telegram if credentials are configured."""
+        if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID:
+            try:
+                url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    await client.post(url, json={"chat_id": settings.TELEGRAM_CHAT_ID, "text": message})
+            except Exception as e:
+                logger.warning(f"Telegram alert delivery failed: {str(e)}")
+
+    async def _handle_token_expiry_alarm(
+        self,
+        db: AsyncSession,
+        config: SystemConfig,
+        open_orders_count: int,
+        error_msg: str,
+    ) -> None:
+        """
+        Detects repeated Upstox 401 errors. If positions are open, immediately sets
+        CRITICAL warning and sends Telegram alert. Does not silently stop risk monitoring.
+        """
+        self._consecutive_auth_failures += 1
+        if open_orders_count > 0:
+            alert_text = (
+                f"CRITICAL: Upstox Access Token Expired or 401 Unauthorized with {open_orders_count} "
+                f"open position(s)! Auto-risk monitoring paused. Re-authenticate immediately! "
+                f"({error_msg})"
+            )
+            config.critical_alert = alert_text
+            await db.commit()
+            log_critical_action(
+                "TOKEN_EXPIRY_CRITICAL_ALERT",
+                {"open_positions": open_orders_count, "consecutive_failures": self._consecutive_auth_failures, "error": error_msg},
+            )
+            await self._send_telegram_alert(f"🚨 UPSTOX ALGO CRITICAL ALERT\n{alert_text}")
+
+    def validate_quote_freshness(
+        self, q_item: Optional[Dict[str, Any]]
+    ) -> Tuple[bool, str, Optional[float], Optional[str]]:
+        """
+        Validates quote freshness against settings.MAX_QUOTE_AGE_SECONDS:
+        1. Missing quote or empty dict -> (False, "UNVERIFIED_MISSING_QUOTE", None, None)
+        2. Missing timestamp -> (False, "UNVERIFIED_MISSING_TIMESTAMP", None, None)
+        3. Invalid/unparseable timestamp -> (False, "UNVERIFIED_INVALID_TIMESTAMP", None, None)
+        4. Future timestamp (> 5s in future) -> (False, "UNVERIFIED_FUTURE_TIMESTAMP", age, ts_str)
+        5. Expired timestamp (> MAX_QUOTE_AGE_SECONDS) -> (False, "STALE", age, ts_str)
+        6. Fresh valid timestamp (0 <= age <= MAX_QUOTE_AGE_SECONDS) -> (True, "FRESH", age, ts_str)
+        """
+        if not q_item or not isinstance(q_item, dict):
+            return False, "UNVERIFIED_MISSING_QUOTE", None, None
+
+        ts_val = q_item.get("timestamp") or q_item.get("last_trade_time")
+        if ts_val is None or ts_val == "" or ts_val is False:
+            return False, "UNVERIFIED_MISSING_TIMESTAMP", None, None
+
+        ts_dt = None
+        try:
+            if isinstance(ts_val, (int, float)):
+                if ts_val <= 0:
+                    return False, "UNVERIFIED_INVALID_TIMESTAMP", None, None
+                if ts_val > 1e11:
+                    ts_dt = datetime.fromtimestamp(ts_val / 1000.0)
+                else:
+                    ts_dt = datetime.fromtimestamp(ts_val)
+            elif isinstance(ts_val, str):
+                clean_ts = ts_val.replace("Z", "+00:00")
+                ts_dt = datetime.fromisoformat(clean_ts)
+                if ts_dt.tzinfo is not None:
+                    ts_dt = ts_dt.astimezone(IST).replace(tzinfo=None)
+            else:
+                return False, "UNVERIFIED_INVALID_TIMESTAMP", None, None
+        except Exception:
+            return False, "UNVERIFIED_INVALID_TIMESTAMP", None, None
+
+        if ts_dt is None:
+            return False, "UNVERIFIED_INVALID_TIMESTAMP", None, None
+
+        now = ist_now().replace(tzinfo=None)
+        delta_seconds = (now - ts_dt).total_seconds()
+        ts_str = ts_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Future timestamp check: feed clock skewed ahead of server by > 5 seconds
+        if delta_seconds < -5.0:
+            return False, "UNVERIFIED_FUTURE_TIMESTAMP", round(delta_seconds, 2), ts_str
+
+        # Normal age
+        age = 0.0 if delta_seconds < 0.0 else delta_seconds
+
+        # Expired check
+        if age > settings.MAX_QUOTE_AGE_SECONDS:
+            return False, "STALE", round(age, 2), ts_str
+
+        return True, "FRESH", round(age, 2), ts_str
+
+    def _is_quote_stale(self, q_item: Dict[str, Any]) -> Tuple[bool, Optional[float], Optional[str]]:
+        """
+        Convenience wrapper around validate_quote_freshness for backward compatibility.
+        Returns (is_stale_or_unverified, age_seconds, timestamp_str).
+        """
+        is_fresh, _, age_s, ts_str = self.validate_quote_freshness(q_item)
+        return not is_fresh, age_s, ts_str
+
+    async def startup_reconcile_positions(self, db: AsyncSession) -> Dict[str, Any]:
+        """
+        On engine startup in LIVE mode:
+        1. Queries Upstox portfolio positions.
+        2. Compares broker positions with local active DB orders.
+        3. Identifies unmatched (orphan) positions.
+        4. Saves orphans into SystemConfig.orphan_positions_json.
+        5. Never closes or adopts unknown positions automatically.
+        """
+        config = await broker_service.get_or_create_config(db)
+        if config.mode != "LIVE":
+            return {"status": "SKIPPED", "message": "Startup reconciliation skipped in BACKTEST mode."}
+
+        try:
+            token_record = await broker_service.get_or_create_token_record(db)
+            if not token_record or not token_record.access_token or not token_record.is_valid:
+                return {"status": "NO_TOKEN", "message": "No valid Upstox access token on startup."}
+
+            live_positions = await upstox_client.get_positions(token_record.access_token)
+            stmt_open = select(Order).where(Order.status.in_(["PLACED", "PENDING_EXIT"]))
+            db_orders = (await db.execute(stmt_open)).scalars().all()
+            matched_tokens = {str(o.instrument_key or "") for o in db_orders if o.instrument_key}
+
+            orphans: List[Dict[str, Any]] = []
+            for pos in live_positions:
+                qty = int(pos.get("quantity") or 0)
+                tok = str(pos.get("instrument_token") or "")
+                if qty != 0 and tok not in matched_tokens:
+                    orphans.append({
+                        "instrument_token": tok,
+                        "trading_symbol": pos.get("trading_symbol") or pos.get("symbol") or "Unknown",
+                        "quantity": qty,
+                        "product": pos.get("product") or "I",
+                        "pnl": float(pos.get("pnl") or 0.0),
+                        "buy_price": float(pos.get("buy_price") or pos.get("average_price") or 0.0),
+                        "last_price": float(pos.get("last_price") or 0.0),
+                    })
+
+            if orphans:
+                config.orphan_positions_json = json.dumps(orphans)
+                await db.commit()
+                logger.warning(
+                    f"STARTUP RECOVERY: Detected {len(orphans)} unmatched broker position(s) (ORPHANS). "
+                    f"Manual confirmation required."
+                )
+            else:
+                config.orphan_positions_json = None
+                await db.commit()
+
+            return {
+                "status": "SUCCESS",
+                "orphan_count": len(orphans),
+                "orphans": orphans,
+            }
+        except Exception as exc:
+            logger.warning(f"Startup broker position reconciliation failed: {str(exc)}")
+            return {"status": "ERROR", "message": str(exc)}
 
     def is_within_trading_window(self, current_time: Optional[time] = None) -> Tuple[bool, str]:
         """
@@ -365,6 +531,19 @@ class StrategyService:
             config.target_capital_pct,
         )
 
+        stmt_open = select(Order).where(Order.status.in_(["PLACED", "PENDING_EXIT"]))
+        active_orders = (await db.execute(stmt_open)).scalars().all()
+        quote_status = "FRESH"
+        for ao in active_orders:
+            if ao.reject_reason:
+                if "UNVERIFIED" in ao.reject_reason:
+                    quote_status = "UNVERIFIED"
+                    break
+                elif "STALE" in ao.reject_reason:
+                    quote_status = "STALE"
+        if quote_status == "FRESH" and config.critical_alert and "stale" in config.critical_alert.lower():
+            quote_status = "STALE"
+
         return {
             "connection_status": "connected",
             "data": {
@@ -397,6 +576,9 @@ class StrategyService:
                 "lots": config.lots,
                 "total_qty": config.lots * config.lot_size,
                 "product": "I (Intraday)",
+                "critical_alert": config.critical_alert,
+                "orphan_positions": json.loads(config.orphan_positions_json) if config.orphan_positions_json else [],
+                "quote_status": quote_status,
             },
             "message": "Nifty Directional strategy configuration retrieved.",
         }
@@ -721,6 +903,20 @@ class StrategyService:
         if opt_type and spot_price and spot_price > 0:
             selected_strike = self.calculate_itm3_strike(spot_price, opt_type)
 
+        # Check active orders quote status
+        stmt_open_orders = select(Order).where(Order.status.in_(["PLACED", "PENDING_EXIT"]))
+        active_orders = (await db.execute(stmt_open_orders)).scalars().all()
+        quote_status = "FRESH"
+        for ao in active_orders:
+            if ao.reject_reason:
+                if "UNVERIFIED" in ao.reject_reason:
+                    quote_status = "UNVERIFIED"
+                    break
+                elif "STALE" in ao.reject_reason:
+                    quote_status = "STALE"
+        if quote_status == "FRESH" and config.critical_alert and "stale" in config.critical_alert.lower():
+            quote_status = "STALE"
+
         return {
             "connection_status": "connected",
             "data": {
@@ -749,6 +945,9 @@ class StrategyService:
                 "lots": config.lots,
                 "lot_size": config.lot_size,
                 "quantity": config.lots * config.lot_size,
+                "critical_alert": config.critical_alert,
+                "orphan_positions": json.loads(config.orphan_positions_json) if config.orphan_positions_json else [],
+                "quote_status": quote_status,
             },
             "message": reason,
         }
@@ -976,9 +1175,9 @@ class StrategyService:
 
         actions_taken: List[str] = []
 
-        # 2. Reconcile Open Positions against Capital SL (4%) and Target (5%)
-        stmt_open = select(Order).where(Order.status == "PLACED").order_by(desc(Order.placed_at))
-        open_orders = (await db.execute(stmt_open)).scalars().all()
+        # 2. Reconcile Open Positions against Broker & Capital SL (4%) / Target (5%)
+        stmt_open = select(Order).where(Order.status.in_(["PLACED", "PENDING_EXIT"])).order_by(desc(Order.placed_at))
+        open_orders = list((await db.execute(stmt_open)).scalars().all())
 
         sl_capital_limit, tgt_capital_limit = capital_risk_limits(
             config.total_capital,
@@ -986,20 +1185,226 @@ class StrategyService:
             config.target_capital_pct,
         )
 
+        pos_by_token: Dict[str, Dict[str, Any]] = {}
+
+        # 2a. In LIVE mode, reconcile open orders against actual Upstox portfolio positions
+        if config.mode == "LIVE":
+            try:
+                token_record = await broker_service.get_or_create_token_record(db)
+                if token_record and token_record.access_token and token_record.is_valid:
+                    live_positions = await upstox_client.get_positions(token_record.access_token)
+                    self._consecutive_auth_failures = 0
+                    if config.critical_alert and "Access Token Expired" in config.critical_alert:
+                        config.critical_alert = None
+                        await db.commit()
+
+                    pos_by_token = {
+                        str(p.get("instrument_token") or ""): p
+                        for p in live_positions
+                        if p.get("instrument_token")
+                    }
+
+                    matched_tokens = set()
+
+                    for open_order in open_orders:
+                        tok_key = str(open_order.instrument_key or "")
+                        pos = pos_by_token.get(tok_key)
+                        broker_net_qty = int(pos.get("quantity") or 0) if pos else 0
+                        if tok_key:
+                            matched_tokens.add(tok_key)
+
+                        # Priority 1: Handle PENDING_EXIT orders - poll Upstox until COMPLETE
+                        if open_order.status == "PENDING_EXIT":
+                            if open_order.exit_upstox_order_id:
+                                try:
+                                    history = await upstox_client.get_order_history(
+                                        token_record.access_token, open_order.exit_upstox_order_id
+                                    )
+                                    latest_entry = history[0] if history else {}
+                                    hist_status = str(latest_entry.get("status") or "").lower()
+
+                                    if hist_status == "complete":
+                                        if broker_net_qty == 0:
+                                            # Net quantity confirmed flat: order completely closed!
+                                            open_order.status = "CLOSED"
+                                            open_order.exit_status = "CONFIRMED_EXIT"
+                                            open_order.exit_time = datetime.utcnow()
+                                            fill_price = float(
+                                                latest_entry.get("average_price")
+                                                or (pos.get("sell_price") if pos else None)
+                                                or open_order.exit_price
+                                                or open_order.price
+                                            )
+                                            open_order.exit_price = fill_price
+                                            charges_dict = calculate_option_charges(
+                                                open_order.price, fill_price, open_order.qty, today_date
+                                            )
+                                            gross_pnl = round((fill_price - open_order.price) * open_order.qty, 2)
+                                            open_order.realized_pnl = round(gross_pnl - charges_dict["total"], 2)
+                                            await db.commit()
+                                            actions_taken.append(
+                                                f"Position {open_order.symbol} exit confirmed COMPLETE by Upstox OMS."
+                                            )
+                                            log_critical_action(
+                                                "POSITION_EXIT_CONFIRMED",
+                                                {
+                                                    "symbol": open_order.symbol,
+                                                    "exit_order_id": open_order.exit_upstox_order_id,
+                                                    "realized_pnl": open_order.realized_pnl,
+                                                },
+                                            )
+                                        else:
+                                            # Partial fill: update remaining quantity and keep PLACED
+                                            open_order.qty = broker_net_qty
+                                            open_order.status = "PLACED"
+                                            open_order.exit_status = "PARTIALLY_FILLED"
+                                            await db.commit()
+                                            actions_taken.append(
+                                                f"Position {open_order.symbol} partial exit complete; remaining net qty: {broker_net_qty}."
+                                            )
+                                    elif hist_status in ("rejected", "cancelled"):
+                                        # Exit order failed / cancelled at broker OMS
+                                        open_order.status = "PLACED"
+                                        open_order.exit_status = "FAILED_EXIT"
+                                        open_order.reject_reason = f"Exit order {open_order.exit_upstox_order_id} was {hist_status.upper()}"
+                                        await db.commit()
+                                        actions_taken.append(
+                                            f"Exit order for {open_order.symbol} was {hist_status.upper()}. Reverted to PLACED for risk monitoring retry."
+                                        )
+                                    else:
+                                        # Still OPEN / PENDING_FILL
+                                        actions_taken.append(
+                                            f"Exit order {open_order.exit_upstox_order_id} for {open_order.symbol} is {hist_status or 'PENDING_FILL'}; awaiting broker fill."
+                                        )
+                                except Exception as exc:
+                                    logger.warning(f"Error checking exit order history for {open_order.symbol}: {str(exc)}")
+                            continue
+
+                        # Priority 2: Handle PLACED orders - partial fill & flat reconciliation
+                        if open_order.status == "PLACED":
+                            if pos:
+                                if broker_net_qty == 0:
+                                    # Position already flat on broker OMS
+                                    open_order.status = "CLOSED"
+                                    open_order.exit_status = "CONFIRMED_EXIT"
+                                    open_order.exit_time = datetime.utcnow()
+                                    open_order.exit_price = float(pos.get("sell_price") or pos.get("last_price") or open_order.price)
+                                    open_order.realized_pnl = float(pos.get("pnl") or 0.0)
+                                    open_order.exit_reason = "Broker Position Reconciled (Flat)"
+                                    await db.commit()
+                                    actions_taken.append(f"Position {open_order.symbol} reconciled as CLOSED with Upstox broker.")
+                                elif broker_net_qty > 0 and broker_net_qty != open_order.qty:
+                                    logger.info(
+                                        f"Reconciled order {open_order.client_order_id} qty from {open_order.qty} to broker net qty {broker_net_qty}"
+                                    )
+                                    open_order.qty = broker_net_qty
+                                    await db.commit()
+                                    actions_taken.append(
+                                        f"Order {open_order.symbol} qty updated to actual broker fill qty: {broker_net_qty}."
+                                    )
+
+                    # Priority 4: Identify orphan positions
+                    orphans: List[Dict[str, Any]] = []
+                    for token, pos in pos_by_token.items():
+                        qty = int(pos.get("quantity") or 0)
+                        if qty != 0 and token not in matched_tokens:
+                            orphans.append({
+                                "instrument_token": token,
+                                "trading_symbol": pos.get("trading_symbol") or pos.get("symbol") or "Unknown",
+                                "quantity": qty,
+                                "product": pos.get("product") or "I",
+                                "pnl": float(pos.get("pnl") or 0.0),
+                                "buy_price": float(pos.get("buy_price") or pos.get("average_price") or 0.0),
+                                "last_price": float(pos.get("last_price") or 0.0),
+                            })
+
+                    if orphans:
+                        config.orphan_positions_json = json.dumps(orphans)
+                        await db.commit()
+                        actions_taken.append(f"WARNING: {len(orphans)} orphan position(s) detected on broker.")
+                    elif config.orphan_positions_json:
+                        config.orphan_positions_json = None
+                        await db.commit()
+
+            except Exception as exc:
+                err_str = str(exc)
+                logger.debug(f"Broker position reconciliation note: {err_str}")
+                if "401" in err_str or "unauthorized" in err_str.lower() or "token expired" in err_str.lower():
+                    await self._handle_token_expiry_alarm(db, config, len(open_orders), err_str)
+
+        # Refresh remaining open orders for risk evaluation (only PLACED orders; PENDING_EXIT orders are awaiting fill)
+        open_orders = [o for o in open_orders if o.status == "PLACED"]
+
+        # 2b. Evaluate live quotes and risk bounds
         for open_order in open_orders:
-            current_ltp = open_order.price
+            current_ltp = None
+            quote_err = None
+
             if config.mode == "LIVE":
                 try:
                     token_record = await broker_service.get_or_create_token_record(db)
                     if token_record and token_record.access_token:
-                        q = await upstox_client.get_market_quote(token_record.access_token, open_order.symbol)
-                        q_item = list(q.get("data", {}).values())[0] if q.get("data") else None
-                        if q_item and q_item.get("last_price"):
-                            current_ltp = float(q_item["last_price"])
-                except Exception as exc:
-                    logger.debug(f"Live quote fetch note during position check: {str(exc)}")
+                        quote_key = open_order.instrument_key
+                        if not quote_key:
+                            # Backfill instrument_key if missing from legacy records
+                            try:
+                                m = await self.fetch_instrument_metadata(
+                                    db=db, strike=open_order.strike, option_type=open_order.option_type
+                                )
+                                quote_key = m.get("instrument_key")
+                                if quote_key:
+                                    open_order.instrument_key = quote_key
+                                    await db.commit()
+                            except Exception:
+                                pass
 
-            if current_ltp <= 0 or open_order.price <= 0:
+                        if quote_key:
+                            q = await upstox_client.get_market_quote(token_record.access_token, quote_key)
+                            q_data = q.get("data", {}) or {}
+                            q_item = list(q_data.values())[0] if q_data else None
+                            if q_item and q_item.get("last_price") is not None:
+                                is_fresh, q_status, age_s, ts_str = self.validate_quote_freshness(q_item)
+                                if not is_fresh:
+                                    if q_status == "STALE":
+                                        warning_msg = f"Monitoring paused: Quote is STALE ({age_s:.0f}s old > max {settings.MAX_QUOTE_AGE_SECONDS}s)"
+                                    elif q_status == "UNVERIFIED_MISSING_TIMESTAMP":
+                                        warning_msg = "Monitoring paused: Quote is UNVERIFIED (missing timestamp in feed)"
+                                    elif q_status == "UNVERIFIED_FUTURE_TIMESTAMP":
+                                        warning_msg = f"Monitoring paused: Quote is UNVERIFIED (future timestamp: {abs(age_s or 0):.0f}s ahead)"
+                                    elif q_status == "UNVERIFIED_INVALID_TIMESTAMP":
+                                        warning_msg = "Monitoring paused: Quote is UNVERIFIED (invalid/corrupted timestamp in feed)"
+                                    else:
+                                        warning_msg = f"Monitoring paused: Quote is UNVERIFIED ({q_status})"
+
+                                    logger.warning(
+                                        f"Quote for {open_order.symbol} failed freshness check: {warning_msg}"
+                                    )
+                                    open_order.reject_reason = warning_msg
+                                    await db.commit()
+                                    actions_taken.append(f"WARNING: {open_order.symbol} - {warning_msg}. Risk checks paused.")
+                                    continue
+                                current_ltp = float(q_item["last_price"])
+                            else:
+                                quote_err = f"Empty quote data for key {quote_key}"
+                        else:
+                            quote_err = f"No instrument_key found for {open_order.symbol}"
+                except Exception as exc:
+                    quote_err = str(exc)
+                    logger.warning(f"Live quote fetch note for {open_order.symbol}: {str(exc)}")
+                    if "401" in quote_err or "unauthorized" in quote_err.lower() or "token expired" in quote_err.lower():
+                        await self._handle_token_expiry_alarm(db, config, len(open_orders), quote_err)
+
+                if current_ltp is None or current_ltp <= 0:
+                    # Never silently use stale entry price as current LTP in LIVE mode
+                    logger.warning(
+                        f"Skipping risk evaluation for order {open_order.client_order_id}: live quote unavailable ({quote_err or 'invalid LTP'})."
+                    )
+                    continue
+            else:
+                # BACKTEST mode: use recorded / candle price
+                current_ltp = open_order.price
+
+            if current_ltp is None or current_ltp <= 0 or open_order.price <= 0:
                 continue
 
             charges_dict = calculate_option_charges(open_order.price, current_ltp, open_order.qty, today_date)
@@ -1017,47 +1422,131 @@ class StrategyService:
 
             if exit_reason:
                 if config.mode == "LIVE":
+                    target_token = open_order.instrument_key
+                    if not target_token:
+                        try:
+                            m = await self.fetch_instrument_metadata(
+                                db=db, strike=open_order.strike, option_type=open_order.option_type
+                            )
+                            target_token = m.get("instrument_key")
+                        except Exception:
+                            pass
+
+                    if not target_token:
+                        logger.error(f"Cannot square off order {open_order.client_order_id}: missing instrument_key.")
+                        open_order.exit_status = "FAILED_NO_KEY"
+                        open_order.reject_reason = "Square-off blocked: missing instrument_key"
+                        await db.commit()
+                        continue
+
+                    # Priority 2: Reconcile actual net open quantity from broker before sending exit order
+                    pos = pos_by_token.get(str(target_token))
+                    broker_net_qty = int(pos.get("quantity") or 0) if pos else open_order.qty
+
+                    if broker_net_qty <= 0:
+                        # Position already flat on broker! Never place exit order to avoid accidental reverse/short!
+                        open_order.status = "CLOSED"
+                        open_order.exit_status = "CONFIRMED_EXIT"
+                        open_order.exit_time = datetime.utcnow()
+                        open_order.exit_price = current_ltp
+                        open_order.realized_pnl = net_pnl
+                        open_order.reject_reason = f"Reconciled Flat: {exit_reason}"
+                        open_order.exit_reason = (
+                            "SL" if "SL" in exit_reason
+                            else ("Target" if "TARGET" in exit_reason
+                            else ("Time Exit" if "TIME_EXIT" in exit_reason else exit_reason))
+                        )
+                        await db.commit()
+                        actions_taken.append(
+                            f"Position {open_order.symbol} already flat on broker OMS; marked CLOSED without exit order."
+                        )
+                        continue
+
+                    actual_exit_qty = broker_net_qty
+
+                    exit_payload = {
+                        "quantity": actual_exit_qty,
+                        "product": "I",
+                        "validity": "DAY",
+                        "price": 0.0,
+                        "tag": "nifty_dir_exit",
+                        "instrument_token": target_token,
+                        "order_type": "MARKET",
+                        "transaction_type": "SELL",
+                        "disclosed_quantity": 0,
+                        "trigger_price": 0.0,
+                        "is_amo": False,
+                    }
+
+                    exit_order_id = None
                     try:
                         token_record = await broker_service.get_or_create_token_record(db)
                         if token_record and token_record.access_token:
-                            exit_payload = {
-                                "quantity": open_order.qty,
-                                "product": "I",
-                                "validity": "DAY",
-                                "price": 0.0,
-                                "tag": "nifty_dir_exit",
-                                "instrument_token": f"NSE_FO|{open_order.symbol}",
-                                "order_type": "MARKET",
-                                "transaction_type": "SELL",
-                                "disclosed_quantity": 0,
-                                "trigger_price": 0.0,
-                                "is_amo": False,
-                            }
-                            await upstox_client.place_order(token_record.access_token, exit_payload)
+                            resp = await upstox_client.place_order(token_record.access_token, exit_payload)
+                            exit_order_id = (resp.get("data") or {}).get("order_id")
                     except Exception as err:
-                        logger.error(f"Live position square-off API note: {str(err)}")
+                        logger.error(f"Live position square-off API failed for {open_order.symbol}: {str(err)}")
+                        open_order.exit_status = "FAILED_EXIT"
+                        open_order.reject_reason = f"Square-off order failed: {str(err)}"
+                        await db.commit()
+                        actions_taken.append(f"Position {open_order.symbol} square-off failed: {str(err)}")
+                        continue
 
-                open_order.status = "CLOSED"
-                open_order.exit_price = current_ltp
-                open_order.exit_time = datetime.utcnow()
-                open_order.realized_pnl = net_pnl
-                open_order.reject_reason = exit_reason
-                open_order.exit_reason = (
-                    "SL" if "SL" in exit_reason
-                    else ("Target" if "TARGET" in exit_reason
-                    else ("Time Exit" if "TIME_EXIT" in exit_reason else exit_reason))
-                )
-                await db.commit()
-                actions_taken.append(f"Position {open_order.symbol} closed: {exit_reason}")
-                log_critical_action(
-                    "POSITION_AUTO_EXIT",
-                    {
-                        "symbol": open_order.symbol,
-                        "net_pnl": net_pnl,
-                        "reason": exit_reason,
-                        "mode": config.mode,
-                    },
-                )
+                    if not exit_order_id:
+                        logger.error(f"Upstox OMS did not return order_id for square-off of {open_order.symbol}")
+                        open_order.exit_status = "FAILED_EXIT"
+                        open_order.reject_reason = "Upstox OMS did not return exit order_id"
+                        await db.commit()
+                        continue
+
+                    # Priority 1: Transition to PENDING_EXIT and await fill confirmation!
+                    open_order.status = "PENDING_EXIT"
+                    open_order.exit_upstox_order_id = exit_order_id
+                    open_order.exit_status = "PENDING_FILL"
+                    open_order.exit_price = current_ltp
+                    open_order.reject_reason = exit_reason
+                    open_order.exit_reason = (
+                        "SL" if "SL" in exit_reason
+                        else ("Target" if "TARGET" in exit_reason
+                        else ("Time Exit" if "TIME_EXIT" in exit_reason else exit_reason))
+                    )
+                    await db.commit()
+                    actions_taken.append(
+                        f"Position {open_order.symbol} exit order placed ({exit_order_id}). Status: PENDING_EXIT, awaiting fill."
+                    )
+                    log_critical_action(
+                        "POSITION_EXIT_PLACED",
+                        {
+                            "symbol": open_order.symbol,
+                            "qty": actual_exit_qty,
+                            "reason": exit_reason,
+                            "exit_order_id": exit_order_id,
+                        },
+                    )
+                else:
+                    # Simulated execution for BACKTEST
+                    open_order.status = "CLOSED"
+                    open_order.exit_status = "CONFIRMED_EXIT"
+                    open_order.exit_price = current_ltp
+                    open_order.exit_time = datetime.utcnow()
+                    open_order.realized_pnl = net_pnl
+                    open_order.reject_reason = exit_reason
+                    open_order.exit_reason = (
+                        "SL" if "SL" in exit_reason
+                        else ("Target" if "TARGET" in exit_reason
+                        else ("Time Exit" if "TIME_EXIT" in exit_reason else exit_reason))
+                    )
+                    await db.commit()
+                    actions_taken.append(f"Position {open_order.symbol} closed (Backtest): {exit_reason}")
+                    log_critical_action(
+                        "POSITION_AUTO_EXIT",
+                        {
+                            "symbol": open_order.symbol,
+                            "net_pnl": net_pnl,
+                            "reason": exit_reason,
+                            "mode": config.mode,
+                        },
+                    )
 
         # 3. Strategy Entry Scanner (only when RUNNING, LIVE mode, and no active open position)
         if config.strategy_status == "RUNNING" and config.mode == "LIVE" and len(open_orders) == 0:

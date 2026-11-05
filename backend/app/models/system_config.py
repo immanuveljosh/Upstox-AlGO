@@ -41,3 +41,7 @@ class SystemConfig(Base, TimestampMixin):
     # Safeguards
     product: Mapped[str] = mapped_column(String(10), default="I")  # Intraday (MIS / I)
     is_kill_switch_active: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Live Safety Telemetry & Alerts
+    critical_alert: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    orphan_positions_json: Mapped[Optional[str]] = mapped_column(String(4000), nullable=True)

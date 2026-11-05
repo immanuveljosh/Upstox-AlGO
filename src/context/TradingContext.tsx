@@ -352,10 +352,12 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
       }
 
       // 2. Sync real Orders from Backend / Upstox OMS
+      let rawOrdersData: Record<string, unknown>[] = [];
       const ordersRes = await fetch("http://localhost:8000/api/v1/orders");
       if (ordersRes.ok) {
         const ordersJson = await ordersRes.json();
         if (Array.isArray(ordersJson.data)) {
+          rawOrdersData = ordersJson.data;
           setOrders(
             ordersJson.data.map((o: Record<string, unknown>) => ({
               id: String(o.client_order_id || o.id || ""),
@@ -393,6 +395,17 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
             const pnlVal = Number(firstPos.pnl || (ltpVal - buyPr) * netQty);
             const ts = String(firstPos.trading_symbol || firstPos.tradingsymbol || "NIFTY");
             const optType = ts.includes("PE") ? "PE" : "CE";
+
+            const matchingDbOrder = rawOrdersData.find((o: Record<string, unknown>) => {
+              const oStat = String(o.status || "");
+              return oStat === "PLACED" || oStat === "PENDING_EXIT";
+            }) || null;
+
+            const rejectReason = matchingDbOrder?.rejectReason || matchingDbOrder?.reject_reason;
+            const isUnverified = typeof rejectReason === "string" && rejectReason.includes("UNVERIFIED");
+            const isStale = typeof rejectReason === "string" && rejectReason.includes("STALE");
+            const qStatus = isUnverified ? "UNVERIFIED" : isStale ? "STALE" : "FRESH";
+
             setActivePosition({
               symbol: ts,
               strike: Number(firstPos.strike_price || 0),
@@ -408,6 +421,11 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
               target: 0,
               trailingSl: 0,
               entryTime: "Live",
+              status: typeof matchingDbOrder?.status === "string" ? matchingDbOrder.status : "PLACED",
+              isStale: isStale,
+              isUnverified: isUnverified,
+              quoteStatus: qStatus,
+              quoteRejectReason: typeof rejectReason === "string" ? rejectReason : undefined,
             });
           } else {
             setActivePosition(null);

@@ -32,6 +32,9 @@ class StrategyConfigData(BaseModel):
     lots: int = 1
     total_qty: int = 65
     product: str = "I (Intraday)"
+    critical_alert: Optional[str] = None
+    orphan_positions: Optional[List[Dict[str, Any]]] = None
+    quote_status: Optional[str] = "FRESH"
 
 
 class StrategySettingsUpdate(BaseModel):

@@ -1,0 +1,20 @@
+[
+  {
+    "bugId": "BUG-8",
+    "severity": "High",
+    "category": "api-contract",
+    "file": "src/components/settings/KillSwitchSettings.tsx",
+    "lines": "17-21",
+    "claim": "KillSwitchSettings calls non-existent endpoint /api/v1/strategy/square-off causing emergency square-off requests to fail with HTTP 404.",
+    "evidence": "In src/components/settings/KillSwitchSettings.tsx:17, handleEmergencySquareOff sends a POST request to 'http://localhost:8000/api/v1/strategy/square-off'. The backend routes only define emergency liquidation under '/api/v1/risk/kill-switch' (in backend/app/api/v1/risk.py:11) and '/api/v1/orders/exit-all' (in backend/app/api/v1/orders.py:43). The call consistently returns HTTP 404 Not Found, failing emergency square-off and leaving live exchange positions open.",
+    "runtimeTrigger": "Clicking 'Square Off All Positions' button in the Safeguards / Kill Switch settings tab",
+    "crossReferences": [
+      "backend/app/api/v1/risk.py:11-19",
+      "backend/app/api/v1/orders.py:43-49"
+    ],
+    "confidenceScore": 96,
+    "confidenceLabel": "high",
+    "stride": "N/A",
+    "cwe": "N/A"
+  }
+]

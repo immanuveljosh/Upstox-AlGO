@@ -1,9 +1,12 @@
+import asyncio
+import ipaddress
 import json
 import secrets
+import socket
 import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
-from urllib.parse import urlencode, quote
+from urllib.parse import urlencode, quote, urlparse
 import httpx
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, Query, HTTPException, Request, status
@@ -390,7 +393,7 @@ async def validate_webhook_reachability(
                 "url_status": url_status,
                 "endpoint_status": url_status,
                 "is_https": is_https,
-                "is_public": not is_localhost and bool(target_url),
+                "is_public": False,
                 "is_reachable": False,
                 "status_code": None,
                 "latency_ms": 0,
@@ -401,13 +404,153 @@ async def validate_webhook_reachability(
             "message": diagnosis,
         }
 
+    # Strict SSRF Protection: Parse URL and resolve hostname to validate IP addresses
+    try:
+        parsed = urlparse(target_url)
+        hostname = parsed.hostname
+        port = parsed.port or 443
+    except Exception as parse_exc:
+        diagnosis = f"URL Invalid: Could not parse target URL: {parse_exc}"
+        return {
+            "status": "error",
+            "data": {
+                "url": target_url,
+                "url_status": "URL Invalid",
+                "endpoint_status": "URL Invalid",
+                "is_https": is_https,
+                "is_public": False,
+                "is_reachable": False,
+                "status_code": None,
+                "latency_ms": 0,
+                "diagnosis": diagnosis,
+                "console_note": "Endpoint reachability does NOT confirm registration in Upstox Developer Console.",
+                "layer": "INFRASTRUCTURE_ERROR",
+            },
+            "message": diagnosis,
+        }
+
+    if not hostname:
+        diagnosis = "URL Invalid: Target URL is missing a valid hostname."
+        return {
+            "status": "error",
+            "data": {
+                "url": target_url,
+                "url_status": "URL Invalid",
+                "endpoint_status": "URL Invalid",
+                "is_https": is_https,
+                "is_public": False,
+                "is_reachable": False,
+                "status_code": None,
+                "latency_ms": 0,
+                "diagnosis": diagnosis,
+                "console_note": "Endpoint reachability does NOT confirm registration in Upstox Developer Console.",
+                "layer": "INFRASTRUCTURE_ERROR",
+            },
+            "message": diagnosis,
+        }
+
+    # Resolve IP addresses via DNS
+    try:
+        addr_infos = await asyncio.to_thread(socket.getaddrinfo, hostname, port, 0, socket.SOCK_STREAM)
+        resolved_ips = list({info[4][0] for info in addr_infos if info[4]})
+    except Exception as dns_exc:
+        diagnosis = f"Endpoint Unreachable: DNS resolution failed for {hostname}: {dns_exc}"
+        return {
+            "status": "error",
+            "data": {
+                "url": target_url,
+                "url_status": url_status,
+                "endpoint_status": "DNS Resolution Failed",
+                "is_https": is_https,
+                "is_public": False,
+                "is_reachable": False,
+                "status_code": None,
+                "latency_ms": 0,
+                "diagnosis": diagnosis,
+                "console_note": "Endpoint reachability does NOT confirm registration in Upstox Developer Console.",
+                "layer": "INFRASTRUCTURE_ERROR",
+            },
+            "message": diagnosis,
+        }
+
+    if not resolved_ips:
+        diagnosis = f"Endpoint Unreachable: No IP addresses resolved for {hostname}."
+        return {
+            "status": "error",
+            "data": {
+                "url": target_url,
+                "url_status": url_status,
+                "endpoint_status": "DNS Resolution Failed",
+                "is_https": is_https,
+                "is_public": False,
+                "is_reachable": False,
+                "status_code": None,
+                "latency_ms": 0,
+                "diagnosis": diagnosis,
+                "console_note": "Endpoint reachability does NOT confirm registration in Upstox Developer Console.",
+                "layer": "INFRASTRUCTURE_ERROR",
+            },
+            "message": diagnosis,
+        }
+
+    # Block private, loopback, link-local (e.g. AWS/cloud metadata 169.254.169.254), multicast, reserved IPs
+    for ip_str in resolved_ips:
+        try:
+            ip_obj = ipaddress.ip_address(ip_str)
+            if (
+                ip_obj.is_private
+                or ip_obj.is_loopback
+                or ip_obj.is_link_local
+                or ip_obj.is_multicast
+                or ip_obj.is_reserved
+                or ip_obj.is_unspecified
+            ):
+                diagnosis = f"URL Invalid: Host '{hostname}' resolves to restricted or private IP address ({ip_str})."
+                return {
+                    "status": "error",
+                    "data": {
+                        "url": target_url,
+                        "url_status": "URL Invalid",
+                        "endpoint_status": "Restricted IP",
+                        "is_https": is_https,
+                        "is_public": False,
+                        "is_reachable": False,
+                        "status_code": None,
+                        "latency_ms": 0,
+                        "diagnosis": diagnosis,
+                        "console_note": "Endpoint reachability does NOT confirm registration in Upstox Developer Console.",
+                        "layer": "INFRASTRUCTURE_ERROR",
+                    },
+                    "message": diagnosis,
+                }
+        except ValueError:
+            diagnosis = f"URL Invalid: Resolved invalid IP address '{ip_str}'."
+            return {
+                "status": "error",
+                "data": {
+                    "url": target_url,
+                    "url_status": "URL Invalid",
+                    "endpoint_status": "Restricted IP",
+                    "is_https": is_https,
+                    "is_public": False,
+                    "is_reachable": False,
+                    "status_code": None,
+                    "latency_ms": 0,
+                    "diagnosis": diagnosis,
+                    "console_note": "Endpoint reachability does NOT confirm registration in Upstox Developer Console.",
+                    "layer": "INFRASTRUCTURE_ERROR",
+                },
+                "message": diagnosis,
+            }
+
     start_t = time.time()
     reachable = False
     status_code = None
     err_detail = None
 
     try:
-        async with httpx.AsyncClient(timeout=8.0, verify=False) as client:
+        # TLS verification enabled strictly (verify=True)
+        async with httpx.AsyncClient(timeout=8.0, verify=True) as client:
             resp = await client.get(target_url)
             status_code = resp.status_code
             latency_ms = max(1, int((time.time() - start_t) * 1000))

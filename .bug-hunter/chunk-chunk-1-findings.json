@@ -1,0 +1,89 @@
+[
+  {
+    "bugId": "BUG-1",
+    "severity": "High",
+    "category": "security",
+    "file": "backend/app/api/v1/auth.py",
+    "lines": "363-425",
+    "claim": "Unauthenticated SSRF vulnerability in webhook validation endpoint with disabled TLS verification allows probing internal networks.",
+    "evidence": "In backend/app/api/v1/auth.py:363-425, the endpoint POST /api/v1/auth/webhook/validate is unauthenticated and accepts a user-controlled URL payload without restricting target hosts to public IP ranges (it only checks for literal localhost/127.0.0.1/0.0.0.0 strings). It then executes httpx.get with verify=False, allowing arbitrary internal network probing (e.g. AWS/GCP cloud metadata services, internal HTTPS APIs).",
+    "runtimeTrigger": "POST /api/v1/auth/webhook/validate with {\"url\": \"https://169.254.169.254/api/v1/auth/upstox/notifier\"}",
+    "crossReferences": [
+      "backend/app/services/broker_service.py:220-226"
+    ],
+    "confidenceScore": 92,
+    "confidenceLabel": "high",
+    "stride": "Tampering",
+    "cwe": "CWE-918"
+  },
+  {
+    "bugId": "BUG-2",
+    "severity": "High",
+    "category": "api-contract",
+    "file": "backend/app/services/order_service.py",
+    "lines": "338-366",
+    "claim": "Order cancellation passes internal client_order_id to Upstox API instead of Upstox order_id, causing Upstox OMS order cancellation to fail silently while marking order as cancelled locally.",
+    "evidence": "In backend/app/services/order_service.py:350, cancel_order invokes upstox_client.cancel_order with order_id, which is the internal client_order_id (e.g. UPX-XXXXXXXX). Upstox rejects the non-numeric order ID with 400 Bad Request, the exception is caught and swallowed in line 352 (logger.warning), and line 358 marks db_order.status = 'CANCELLED' locally, falsely reporting the order as successfully cancelled while it remains active on the exchange.",
+    "runtimeTrigger": "DELETE /api/v1/orders/UPX-A1B2C3D4",
+    "crossReferences": [
+      "backend/app/api/v1/orders.py:79-85",
+      "backend/app/services/upstox_client.py:215-222"
+    ],
+    "confidenceScore": 96,
+    "confidenceLabel": "high",
+    "stride": "N/A",
+    "cwe": "N/A"
+  },
+  {
+    "bugId": "BUG-3",
+    "severity": "High",
+    "category": "concurrency",
+    "file": "backend/app/services/order_service.py",
+    "lines": "38-46",
+    "claim": "Race condition in daily trade limit check allows multiple concurrent order placements, violating the strategy invariant of maximum 1 trade per day.",
+    "evidence": "In backend/app/services/order_service.py:38-46 and 124-126, place_directional_order checks config.trades_executed_today >= config.max_trades_per_day without an asyncio lock or database-level row lock (FOR UPDATE). Two concurrent requests arriving at 09:15:00 both read trades_executed_today as 0, both execute live orders with Upstox OMS, and both increment the count, exceeding the strict 1 trade per day strategy limit.",
+    "runtimeTrigger": "Concurrent HTTP POST requests to /api/v1/orders/directional within the same millisecond at 09:15:00",
+    "crossReferences": [
+      "backend/app/api/v1/orders.py:13-35",
+      "backend/app/models/system_config.py:28-30"
+    ],
+    "confidenceScore": 89,
+    "confidenceLabel": "high",
+    "stride": "N/A",
+    "cwe": "N/A"
+  },
+  {
+    "bugId": "BUG-4",
+    "severity": "Medium",
+    "category": "security",
+    "file": "src/app/login/page.tsx",
+    "lines": "44-51",
+    "claim": "Hardcoded Upstox Client ID in frontend login fallback leaks credential into client bundle.",
+    "evidence": "In src/app/login/page.tsx:44 and 50, client ID '22e100c2-59e7-4d4d-98a0-d69ae3b08c87' is hardcoded as fallback in the client-side component code instead of being provided dynamically from backend configuration or environment variables.",
+    "runtimeTrigger": "Inspecting the compiled frontend bundle or network requests on fallback login triggers",
+    "crossReferences": [
+      "Single file"
+    ],
+    "confidenceScore": 88,
+    "confidenceLabel": "high",
+    "stride": "InfoDisclosure",
+    "cwe": "CWE-798"
+  },
+  {
+    "bugId": "BUG-5",
+    "severity": "High",
+    "category": "security",
+    "file": "src/app/login/page.tsx",
+    "lines": "77-82",
+    "claim": "Client-side authentication bypass routes unauthenticated users to connected dashboard upon backend network or API failure.",
+    "evidence": "In src/app/login/page.tsx:77-82, when manual token verification fails due to a network error or backend unreachable, the catch block executes setTimeout(() => { router.push('/?auth=connected'); }, 700);, bypassing authentication and redirecting the unverified user to the connected state.",
+    "runtimeTrigger": "Submitting a token in manual auth mode when backend is unreachable or returns a network error",
+    "crossReferences": [
+      "Single file"
+    ],
+    "confidenceScore": 94,
+    "confidenceLabel": "high",
+    "stride": "ElevationOfPrivilege",
+    "cwe": "CWE-306"
+  }
+]

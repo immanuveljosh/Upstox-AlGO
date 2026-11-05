@@ -63,7 +63,7 @@ class RiskService:
             logger.warning(f"Could not retrieve positions for square-off: {str(exc)}")
 
         # Cancel pending orders in local DB & Upstox
-        stmt = select(Order).where(Order.status == "PLACED")
+        stmt = select(Order).where(Order.status.in_(["PLACED", "PENDING_EXIT"]))
         result = await db.execute(stmt)
         placed_orders = result.scalars().all()
         for o in placed_orders:

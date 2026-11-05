@@ -1,0 +1,38 @@
+[
+  {
+    "bugId": "BUG-6",
+    "severity": "Critical",
+    "category": "api-contract",
+    "file": "backend/app/services/strategy_service.py",
+    "lines": "1023-1049",
+    "claim": "Automated position square-off passes invalid instrument_token to Upstox OMS and swallows order rejection, leaving live positions unclosed while marking them CLOSED locally.",
+    "evidence": "In backend/app/services/strategy_service.py:1029, run_monitoring_tick constructs the exit order payload with '\"instrument_token\": f\"NSE_FO|{open_order.symbol}\"'. However, open_order.symbol is the human-readable trading symbol (e.g. 'NIFTY 24500 CE' or 'NIFTY26NOV24500CE'), whereas Upstox API v2 requires an exchange instrument_token (e.g. 'NSE_FO|52345'). Upstox OMS rejects the exit order, the exception is swallowed in line 1037 (logger.error), and line 1040 sets open_order.status = 'CLOSED' in the local database. The real position remains open with no stop loss protection.",
+    "runtimeTrigger": "A live position hits the 4% Capital Stop Loss, 5% Capital Target, or 15:15 IST auto square-off during run_monitoring_tick",
+    "crossReferences": [
+      "backend/app/services/order_service.py:108",
+      "backend/app/services/upstox_client.py:195-204"
+    ],
+    "confidenceScore": 96,
+    "confidenceLabel": "high",
+    "stride": "N/A",
+    "cwe": "N/A"
+  },
+  {
+    "bugId": "BUG-7",
+    "severity": "High",
+    "category": "api-contract",
+    "file": "backend/app/services/strategy_service.py",
+    "lines": "990-1002",
+    "claim": "Position monitoring queries live option quotes using trading symbol instead of instrument key, preventing real-time Stop Loss and Target tracking.",
+    "evidence": "In backend/app/services/strategy_service.py:995, run_monitoring_tick attempts to fetch market quotes via 'upstox_client.get_market_quote(token_record.access_token, open_order.symbol)'. Upstox market quote endpoint requires valid instrument_keys (e.g. 'NSE_FO|52345'), but open_order.symbol contains the trading symbol string (e.g. 'NIFTY 24500 CE'). The API returns an error or empty dictionary, leaving current_ltp defaulted to open_order.price, meaning live P&L never updates and stop loss / target limits are never triggered during the trading day.",
+    "runtimeTrigger": "Monitoring open positions in LIVE mode during market hours",
+    "crossReferences": [
+      "backend/app/services/upstox_client.py:242-250",
+      "backend/app/models/order.py:15"
+    ],
+    "confidenceScore": 94,
+    "confidenceLabel": "high",
+    "stride": "N/A",
+    "cwe": "N/A"
+  }
+]

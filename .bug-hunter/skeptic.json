@@ -1,0 +1,42 @@
+[
+  {
+    "bugId": "BUG-1",
+    "response": "ACCEPT",
+    "analysisSummary": "Endpoint POST /api/v1/auth/webhook/validate has no authentication guard, validates only literal localhost strings (omitting private and link-local IP ranges like 169.254.169.254 and 10.0.0.0/8), and executes unpinned GET requests with verify=False, allowing internal network probing."
+  },
+  {
+    "bugId": "BUG-2",
+    "response": "ACCEPT",
+    "analysisSummary": "Verified against backend/app/services/order_service.py:349-360. cancel_order passes client_order_id directly to Upstox OMS instead of resolving db_order.upstox_order_id first. Upstox rejection is swallowed by the except block and local DB status is marked CANCELLED, desynchronizing local state from the exchange."
+  },
+  {
+    "bugId": "BUG-3",
+    "response": "ACCEPT",
+    "analysisSummary": "Confirmed that place_directional_order reads config.trades_executed_today without synchronization or row-level locking before calling Upstox OMS, allowing concurrent execution requests to bypass the daily 1-trade limit."
+  },
+  {
+    "bugId": "BUG-4",
+    "response": "ACCEPT",
+    "analysisSummary": "Confirmed that a specific Upstox Developer App client_id ('22e100c2-59e7-4d4d-98a0-d69ae3b08c87') is hardcoded in the frontend LoginPage fallback handlers at lines 44 and 50 rather than reading from backend settings."
+  },
+  {
+    "bugId": "BUG-5",
+    "response": "ACCEPT",
+    "analysisSummary": "Verified in src/app/login/page.tsx:77-82 that catch handler in handleManualTokenSubmit routes directly to /?auth=connected upon network failure, spoofing a successful authentication state."
+  },
+  {
+    "bugId": "BUG-6",
+    "response": "ACCEPT",
+    "analysisSummary": "Verified that backend/app/services/strategy_service.py:1029 passes 'NSE_FO|' + open_order.symbol as instrument_token rather than the actual contract instrument_key. Upstox OMS rejection is swallowed in line 1037 and the local DB marks the order CLOSED, leaving the exchange position open."
+  },
+  {
+    "bugId": "BUG-7",
+    "response": "ACCEPT",
+    "analysisSummary": "Verified that run_monitoring_tick passes open_order.symbol to get_market_quote, which expects an instrument_key. The call fails or returns empty, leaving current_ltp unchanged from entry price and preventing real-time P&L risk evaluation."
+  },
+  {
+    "bugId": "BUG-8",
+    "response": "ACCEPT",
+    "analysisSummary": "Verified that no route handles POST /api/v1/strategy/square-off in backend/app/api/v1. The legitimate endpoints are /api/v1/risk/kill-switch and /api/v1/orders/exit-all. The frontend call returns 404, failing emergency liquidation."
+  }
+]

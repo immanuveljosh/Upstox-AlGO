@@ -5,7 +5,14 @@ from backend.app.core.database import get_db
 from backend.app.services.order_service import order_service
 from backend.app.services.risk_service import risk_service
 from backend.app.schemas.common import APIResponse
-from backend.app.schemas.order import OrderCreateRequest, OrderPlacedData, OrderItem, ExitAllResultData
+from backend.app.schemas.order import (
+    OrderCreateRequest,
+    OrderPlacedData,
+    OrderItem,
+    ExitAllResultData,
+    OrphanPositionsResponse,
+    OrphanActionRequest,
+)
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
@@ -83,3 +90,27 @@ async def cancel_order(
 ):
     """Cancel an active order."""
     return await order_service.cancel_order(db=db, order_id=order_id)
+
+
+@router.get("/orphans", response_model=APIResponse[OrphanPositionsResponse])
+async def get_orphan_positions(db: AsyncSession = Depends(get_db)):
+    """Retrieve any unmatched broker positions (orphan positions)."""
+    return await order_service.get_orphan_positions(db=db)
+
+
+@router.post("/adopt-orphan", response_model=APIResponse[dict])
+async def adopt_orphan_position(
+    payload: OrphanActionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Explicitly adopt an orphan position into the automated strategy."""
+    return await order_service.adopt_orphan_position(db=db, instrument_token=payload.instrument_token)
+
+
+@router.post("/square-off-orphan", response_model=APIResponse[dict])
+async def square_off_orphan_position(
+    payload: OrphanActionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Explicitly square off an orphan position on Upstox broker."""
+    return await order_service.square_off_orphan_position(db=db, instrument_token=payload.instrument_token)

@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     DAILY_TOKEN_REQUEST_TIME: str = "08:45"
     DAILY_TOKEN_SCHEDULER_ENABLED: bool = True
 
+    # Live Safety & Monitoring Configuration
+    MAX_QUOTE_AGE_SECONDS: int = 60  # Maximum acceptable age in seconds for option quotes
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+
     # Security & Tokens
     JWT_SECRET_KEY: str = "upstox_super_secure_secret_key_change_in_production_2026"
     TOKEN_ENCRYPTION_KEY: str = ""

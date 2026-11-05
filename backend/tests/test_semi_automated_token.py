@@ -1,5 +1,6 @@
 import os
 import sys
+import socket
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 import pytest
@@ -429,8 +430,10 @@ async def test_15_webhook_health_and_validation_endpoints():
         assert data_health["status"] == "ready"
         assert "Upstox Notifier Webhook" in data_health["service"]
 
-        # POST /api/v1/auth/webhook/validate with mocked httpx response
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        # POST /api/v1/auth/webhook/validate with mocked httpx response and public DNS resolution
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get, \
+             patch("socket.getaddrinfo") as mock_dns:
+            mock_dns.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("104.21.23.45", 443))]
             mock_resp = AsyncMock()
             mock_resp.status_code = 200
             mock_get.return_value = mock_resp

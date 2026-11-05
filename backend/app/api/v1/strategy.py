@@ -4,7 +4,9 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.database import get_db
 from backend.app.services.strategy_service import strategy_service
+from backend.app.services.risk_service import risk_service
 from backend.app.schemas.common import APIResponse
+from backend.app.schemas.risk import KillSwitchResultData
 from backend.app.schemas.strategy import (
     StrategyConfigData,
     StrategySettingsUpdate,
@@ -32,6 +34,15 @@ async def get_strategy(db: AsyncSession = Depends(get_db)):
 async def get_strategy_status(db: AsyncSession = Depends(get_db)):
     """Fetch live 'Nifty Directional' strategy overview, Gift Nifty signal, window status, and today's trade status."""
     return await strategy_service.get_live_status(db)
+
+
+@router.post("/square-off", response_model=APIResponse[KillSwitchResultData])
+async def emergency_square_off_strategy_alias(db: AsyncSession = Depends(get_db)):
+    """
+    Emergency square-off alias endpoint for strategy controls.
+    Delegates immediately to risk_service.execute_kill_switch.
+    """
+    return await risk_service.execute_kill_switch(db)
 
 
 @router.post("/gift-nifty", response_model=APIResponse[dict])

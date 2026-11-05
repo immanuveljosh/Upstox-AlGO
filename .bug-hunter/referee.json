@@ -1,0 +1,82 @@
+[
+  {
+    "bugId": "BUG-1",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "High",
+    "confidenceScore": 92,
+    "confidenceLabel": "high",
+    "verificationMode": "INDEPENDENTLY_VERIFIED",
+    "analysisSummary": "High: unauthenticated SSRF vulnerability. Endpoint POST /api/v1/auth/webhook/validate in backend/app/api/v1/auth.py:363-425 accepts arbitrary user-supplied URLs without authentication and tests connectivity with verify=False, only blocking literal localhost string matches without resolving IP addresses or filtering private/link-local IPv4/IPv6 networks.",
+    "suggestedFix": "Require authentication for webhook validation, resolve target hostnames to IP addresses before making HTTP requests, reject private and link-local subnets (e.g., 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.169.254), and enable TLS certificate verification."
+  },
+  {
+    "bugId": "BUG-2",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "High",
+    "confidenceScore": 96,
+    "confidenceLabel": "high",
+    "verificationMode": "INDEPENDENTLY_VERIFIED",
+    "analysisSummary": "High: API contract and state desynchronization defect. In backend/app/services/order_service.py:350, cancel_order sends the local client_order_id ('UPX-...') to Upstox's /order/cancel API, which expects Upstox's OMS order_id. Upstox rejects the cancellation, the error is swallowed, and the local DB unconditionally sets status='CANCELLED', creating a false cancellation state while the order remains live with Upstox.",
+    "suggestedFix": "Query the Order record by client_order_id first, ensure db_order.upstox_order_id exists, pass db_order.upstox_order_id to upstox_client.cancel_order, and only mark db_order.status = 'CANCELLED' if the Upstox API cancellation call succeeds."
+  },
+  {
+    "bugId": "BUG-3",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "High",
+    "confidenceScore": 90,
+    "confidenceLabel": "high",
+    "verificationMode": "INDEPENDENTLY_VERIFIED",
+    "analysisSummary": "High: concurrency race condition on strategy execution bounds. In backend/app/services/order_service.py:38-46 and 124-126, place_directional_order checks and updates config.trades_executed_today without synchronization or row-level locking. Multiple rapid requests can execute concurrently, exceeding the strict 1 trade per day invariant.",
+    "suggestedFix": "Wrap the daily limit check and order execution in an asyncio lock (similar to BrokerService._get_lock()) and commit an atomic reservation on trades_executed_today before placing live orders."
+  },
+  {
+    "bugId": "BUG-4",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "Medium",
+    "confidenceScore": 88,
+    "confidenceLabel": "high",
+    "verificationMode": "INDEPENDENTLY_VERIFIED",
+    "analysisSummary": "Medium: hard-coded credential / API identifier. In src/app/login/page.tsx:44 and 50, a specific client_id '22e100c2-59e7-4d4d-98a0-d69ae3b08c87' is hardcoded in the client bundle as an offline fallback, exposing application metadata and bypassing dynamic backend settings.",
+    "suggestedFix": "Remove hardcoded client ID constants from src/app/login/page.tsx and ensure fallback paths display a clear configuration error requiring backend connectivity."
+  },
+  {
+    "bugId": "BUG-5",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "High",
+    "confidenceScore": 95,
+    "confidenceLabel": "high",
+    "verificationMode": "INDEPENDENTLY_VERIFIED",
+    "analysisSummary": "High: client-side authentication bypass / state spoofing. In src/app/login/page.tsx:77-82, the catch block of handleManualTokenSubmit silently invokes router.push('/?auth=connected') whenever the backend verification fails or throws an exception, placing unverified sessions into connected state.",
+    "suggestedFix": "Remove the offline demo fallback in the catch block of handleManualTokenSubmit and set an explicit error state: setErrorMsg('Could not connect to backend server. Token was not verified.')"
+  },
+  {
+    "bugId": "BUG-6",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "Critical",
+    "confidenceScore": 97,
+    "confidenceLabel": "high",
+    "verificationMode": "INDEPENDENTLY_VERIFIED",
+    "analysisSummary": "Critical: silent failure on position square-off path leading to unmanaged market risk. In backend/app/services/strategy_service.py:1029, the automated stop loss and target exit order is formatted with '\"instrument_token\": f\"NSE_FO|{open_order.symbol}\"' which is rejected by Upstox OMS. The exception is swallowed in line 1037 and the order is marked CLOSED locally, leaving live positions unprotected against further losses.",
+    "suggestedFix": "Store the resolved instrument_key in the Order table upon placement, use open_order.instrument_key as instrument_token in exit_payload, and do not mark open_order.status = 'CLOSED' if the live square-off API call fails."
+  },
+  {
+    "bugId": "BUG-7",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "High",
+    "confidenceScore": 94,
+    "confidenceLabel": "high",
+    "verificationMode": "INDEPENDENTLY_VERIFIED",
+    "analysisSummary": "High: API contract violation preventing real-time Stop Loss and Target tracking. In backend/app/services/strategy_service.py:995, run_monitoring_tick calls upstox_client.get_market_quote with open_order.symbol instead of a valid instrument_key (e.g. 'NSE_FO|52345'). Upstox returns empty/error, preventing current_ltp from updating and disabling automated risk limit checks.",
+    "suggestedFix": "Persist instrument_key in the Order model and pass open_order.instrument_key to get_market_quote in run_monitoring_tick."
+  },
+  {
+    "bugId": "BUG-8",
+    "verdict": "REAL_BUG",
+    "trueSeverity": "High",
+    "confidenceScore": 96,
+    "confidenceLabel": "high",
+    "verificationMode": "INDEPENDENTLY_VERIFIED",
+    "analysisSummary": "High: dead API route causes emergency liquidation to fail with HTTP 404. In src/components/settings/KillSwitchSettings.tsx:17, handleEmergencySquareOff calls POST /api/v1/strategy/square-off, which is not implemented by the backend router. The real endpoints are /api/v1/risk/kill-switch and /api/v1/orders/exit-all.",
+    "suggestedFix": "Update the fetch URL in src/components/settings/KillSwitchSettings.tsx:17 to 'http://localhost:8000/api/v1/risk/kill-switch'."
+  }
+]

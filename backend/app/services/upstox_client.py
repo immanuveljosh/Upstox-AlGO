@@ -221,6 +221,17 @@ class UpstoxClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def get_order_history(self, access_token: str, order_id: str) -> List[Dict[str, Any]]:
+        """Fetch order lifecycle and status history from Upstox `/v2/order/history`."""
+        url = f"{self.base_url}/order/history"
+        params = {"order_id": order_id}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(url, headers=self._headers(access_token), params=params)
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("data", []) or []
+            return []
+
     async def get_orders(self, access_token: str) -> List[Dict[str, Any]]:
         """Fetch today's order book from Upstox."""
         url = f"{self.base_url}/order/retrieve-all"

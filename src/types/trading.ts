@@ -46,6 +46,21 @@ export interface Position {
   target: number;
   trailingSl: number;
   entryTime: string;
+  status?: string;
+  isStale?: boolean;
+  isUnverified?: boolean;
+  quoteStatus?: "FRESH" | "STALE" | "UNVERIFIED";
+  quoteRejectReason?: string;
+}
+
+export interface OrphanPosition {
+  instrument_token: string;
+  trading_symbol: string;
+  quantity: number;
+  product: string;
+  pnl: number;
+  buy_price: number;
+  last_price: number;
 }
 
 export interface InstrumentMetadata {
@@ -106,6 +121,8 @@ export interface StrategyLiveStatus {
   lots: number;
   lot_size: number;
   quantity: number;
+  critical_alert?: string | null;
+  orphan_positions?: OrphanPosition[];
 }
 
 export interface StrategyConfig {

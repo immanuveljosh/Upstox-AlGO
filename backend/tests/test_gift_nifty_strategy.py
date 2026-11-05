@@ -8,6 +8,8 @@ from datetime import time, datetime, timezone, timedelta
 from backend.app.services.strategy_service import strategy_service
 from backend.app.services.broker_service import broker_service
 from backend.app.services.order_service import OrderService
+from backend.app.models.order import Order
+from sqlalchemy import select
 from backend.app.core.database import AsyncSessionLocal
 from backend.app.core.exceptions import RiskLimitBreachedException, ModeRestrictionException
 from backend.app.strategy.nifty_directional import (
@@ -292,6 +294,10 @@ async def test_backtest_mode_never_places_live_orders():
 async def test_failed_order_no_false_filled_status():
     order_svc = OrderService()
     async with AsyncSessionLocal() as session:
+        # Clear any prior open test orders
+        stmt = select(Order).where(Order.status == "PLACED")
+        for ord_item in (await session.execute(stmt)).scalars().all():
+            ord_item.status = "CLOSED"
         cfg = await broker_service.get_or_create_config(session)
         cfg.mode = "LIVE"
         cfg.trades_executed_today = 0

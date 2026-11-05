@@ -6,6 +6,8 @@ import { NiftyLivePrice } from "@/components/dashboard/NiftyLivePrice";
 import { PositionCard } from "@/components/dashboard/PositionCard";
 import { ManualOrderPanel } from "@/components/dashboard/ManualOrderPanel";
 import LotSizeCalculator from "@/components/dashboard/LotSizeCalculator";
+import { CriticalAlertBanner } from "@/components/dashboard/CriticalAlertBanner";
+import { OrphanPositionsBanner } from "@/components/dashboard/OrphanPositionsBanner";
 import { useTrading } from "@/context/TradingContext";
 import { AlertCircle, WifiOff } from "lucide-react";
 
@@ -29,6 +31,12 @@ export default function DashboardPage() {
           </span>
         </div>
       )}
+
+      {/* Critical Token Expiry / Live Safety Alert Banner */}
+      <CriticalAlertBanner />
+
+      {/* Orphan Positions Banner */}
+      <OrphanPositionsBanner />
 
       {/* Row 1: Quick Stats (Open P&L, Today's P&L, Margin Used, Win Rate) */}
       <QuickStats />

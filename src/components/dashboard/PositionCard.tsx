@@ -11,6 +11,7 @@ import {
   XCircle,
   Clock,
   Layers,
+  AlertTriangle,
 } from "lucide-react";
 
 export function PositionCard() {
@@ -93,14 +94,21 @@ export function PositionCard() {
             </div>
           </div>
 
-          {/* Quick Exit / Square-off Button */}
-          <button
-            onClick={closeActivePosition}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition-all cursor-pointer"
-          >
-            <XCircle className="w-3.5 h-3.5" />
-            <span>Square Off</span>
-          </button>
+          {/* Quick Exit / Square-off Button or Pending Exit Status */}
+          {activePosition.status === "PENDING_EXIT" ? (
+            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold animate-pulse">
+              <Clock className="w-3.5 h-3.5" />
+              <span>Exiting (Awaiting Fill)...</span>
+            </span>
+          ) : (
+            <button
+              onClick={closeActivePosition}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition-all cursor-pointer"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              <span>Square Off</span>
+            </button>
+          )}
         </div>
 
         {/* Real-time P&L Display */}
@@ -122,7 +130,20 @@ export function PositionCard() {
           </div>
 
           <div className="text-right">
-            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center justify-end gap-1.5">
+              {activePosition.quoteStatus === "UNVERIFIED" || activePosition.isUnverified ? (
+                <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px] font-bold border border-rose-500/30 animate-pulse">
+                  UNVERIFIED
+                </span>
+              ) : activePosition.quoteStatus === "STALE" || activePosition.isStale ? (
+                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold border border-amber-500/30">
+                  STALE
+                </span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[9px] font-bold border border-emerald-500/30">
+                  LIVE
+                </span>
+              )}
               LTP / Premium
             </span>
             <div className="text-lg font-bold font-mono text-white tabular-nums">
@@ -133,6 +154,30 @@ export function PositionCard() {
             </div>
           </div>
         </div>
+
+        {/* Warning callout if quote validation failed so user is not misled */}
+        {(activePosition.quoteStatus === "UNVERIFIED" || activePosition.isUnverified) && (
+          <div className="mt-3 p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-xs text-rose-200 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold text-rose-300">SL/Target Protection Inactive: Quote Unverified</span>
+              <p className="text-[11px] text-rose-300/80 mt-0.5">
+                {activePosition.quoteRejectReason || "Market feed timestamp is missing, future, or invalid. Automatic triggers suspended."}
+              </p>
+            </div>
+          </div>
+        )}
+        {(activePosition.quoteStatus === "STALE" || activePosition.isStale) && !(activePosition.quoteStatus === "UNVERIFIED" || activePosition.isUnverified) && (
+          <div className="mt-3 p-2.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs text-amber-200 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold text-amber-300">SL/Target Protection Paused: Quote Stale (&gt;60s)</span>
+              <p className="text-[11px] text-amber-300/80 mt-0.5">
+                Feed ticks are delayed. Automatic square-off suspended until fresh market quotes resume.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Target & Trailing SL Progress */}

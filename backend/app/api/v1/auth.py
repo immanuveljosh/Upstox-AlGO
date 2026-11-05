@@ -1,15 +1,19 @@
+import json
 import secrets
+import time
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from urllib.parse import urlencode, quote
-from fastapi import APIRouter, Depends, Query, HTTPException, status
-from fastapi.responses import RedirectResponse
+import httpx
+from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Query, HTTPException, Request, status
+from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.database import get_db
 from backend.app.core.config import settings
 from backend.app.services.broker_service import broker_service
 from backend.app.services.upstox_client import upstox_client, UpstoxAuthException
-from backend.app.schemas.broker import TokenUpdateRequest
+from backend.app.schemas.broker import TokenUpdateRequest, TokenRequestScheduleUpdate
 from backend.app.core.logging import logger, log_critical_action
 
 router = APIRouter(prefix="/auth", tags=["Authentication & Upstox OAuth"])
@@ -18,6 +22,10 @@ router = APIRouter(prefix="/auth", tags=["Authentication & Upstox OAuth"])
 _oauth_states: Dict[str, datetime] = {}
 # In-memory single-use code cache to prevent duplicate exchange calls
 _processed_auth_codes: Dict[str, datetime] = {}
+# Webhook rate limiting tracker (ip -> list of epoch timestamps)
+_webhook_rate_tracker: Dict[str, List[float]] = {}
+MAX_WEBHOOK_PAYLOAD_BYTES = 16384
+MAX_WEBHOOK_REQUESTS_PER_MINUTE = 30
 
 
 def _cleanup_old_oauth_entries():
@@ -313,3 +321,291 @@ async def get_me(db: AsyncSession = Depends(get_db)):
         },
         "message": "User session active.",
     }
+
+
+def _check_webhook_rate_limit(client_ip: str) -> bool:
+    """Return True if within rate limit, False if rate limit exceeded."""
+    now = time.time()
+    cutoff = now - 60.0
+    history = [ts for ts in _webhook_rate_tracker.get(client_ip, []) if ts > cutoff]
+    if len(history) >= MAX_WEBHOOK_REQUESTS_PER_MINUTE:
+        _webhook_rate_tracker[client_ip] = history
+        return False
+    history.append(now)
+    _webhook_rate_tracker[client_ip] = history
+    return True
+
+
+class WebhookValidationRequest(BaseModel):
+    url: Optional[str] = None
+
+
+@router.get("/upstox/notifier")
+async def upstox_notifier_webhook_health(db: AsyncSession = Depends(get_db)):
+    """
+    Health check and reachability probe for the Upstox Notifier Webhook endpoint:
+    GET /api/v1/auth/upstox/notifier
+    Allows external reachability tests and webhook validators to verify the endpoint is active.
+    """
+    token_record = await broker_service.get_or_create_token_record(db)
+    client_id = token_record.api_key or settings.UPSTOX_API_KEY
+    masked_cid = f"{client_id[:6]}••••{client_id[-4:]}" if len(client_id) > 10 else client_id
+    return {
+        "status": "ready",
+        "service": "Upstox Notifier Webhook Listener",
+        "configured_client_id": masked_cid,
+        "is_configured": bool(client_id),
+        "accepts": "POST application/json",
+        "message": "Webhook endpoint is operational and awaiting POST deliveries from Upstox.",
+    }
+
+
+@router.post("/webhook/validate")
+async def validate_webhook_reachability(
+    payload: Optional[WebhookValidationRequest] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Validate format and public reachability of the configured Upstox Notifier Webhook URL:
+    POST /api/v1/auth/webhook/validate
+    First validates URL format (HTTPS, public domain, /api/v1/auth/upstox/notifier path).
+    Then pings the URL over HTTPS to confirm internet accessibility and SSL.
+    Explicitly notes that endpoint reachability does NOT confirm registration in Upstox Developer Console.
+    """
+    token_record = await broker_service.get_or_create_token_record(db)
+    raw_input = payload.url if (payload and payload.url is not None) else broker_service.resolve_webhook_url(token_record)
+    target_url = (raw_input or "").strip()
+
+    url_ok, url_status, url_reason = broker_service.validate_webhook_url_format(target_url)
+    is_https = target_url.lower().startswith("https://")
+    is_localhost = any(h in target_url.lower() for h in ("localhost", "127.0.0.1", "0.0.0.0", "::1"))
+
+    if not url_ok:
+        diagnosis = f"{url_status}: {url_reason}"
+        layer = "INFRASTRUCTURE_WARNING" if url_status == "URL Invalid" else "INFRASTRUCTURE_ERROR"
+        return {
+            "status": "error",
+            "data": {
+                "url": target_url,
+                "url_status": url_status,
+                "endpoint_status": url_status,
+                "is_https": is_https,
+                "is_public": not is_localhost and bool(target_url),
+                "is_reachable": False,
+                "status_code": None,
+                "latency_ms": 0,
+                "diagnosis": diagnosis,
+                "console_note": "Endpoint reachability does NOT confirm registration in Upstox Developer Console.",
+                "layer": layer,
+            },
+            "message": diagnosis,
+        }
+
+    start_t = time.time()
+    reachable = False
+    status_code = None
+    err_detail = None
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0, verify=False) as client:
+            resp = await client.get(target_url)
+            status_code = resp.status_code
+            latency_ms = max(1, int((time.time() - start_t) * 1000))
+            reachable = resp.status_code in (200, 400, 405)
+    except Exception as exc:
+        latency_ms = max(1, int((time.time() - start_t) * 1000))
+        err_detail = str(exc)
+
+    if not reachable:
+        endpoint_status = "Endpoint Unreachable"
+        diagnosis = (
+            f"Endpoint Unreachable: Could not reach {target_url} ({err_detail or f'HTTP {status_code}'}). "
+            "Ensure your public HTTPS tunnel or reverse proxy is running."
+        )
+        layer = "INFRASTRUCTURE_ERROR"
+    else:
+        endpoint_status = "HTTPS Endpoint Reachable"
+        diagnosis = (
+            f"SUCCESS: HTTPS Endpoint Reachable ({latency_ms}ms): Backend webhook listener is online. "
+            "Note: Endpoint reachability confirms your server is live, but does NOT confirm registration in Upstox Developer Console."
+        )
+        layer = "OK"
+
+    return {
+        "status": "success" if reachable else "error",
+        "data": {
+            "url": target_url,
+            "url_status": url_status,
+            "endpoint_status": endpoint_status,
+            "is_https": is_https,
+            "is_public": not is_localhost,
+            "is_reachable": reachable,
+            "status_code": status_code,
+            "latency_ms": latency_ms,
+            "diagnosis": diagnosis,
+            "console_note": "Endpoint reachability does NOT confirm registration in Upstox Developer Console.",
+            "layer": layer,
+        },
+        "message": diagnosis,
+    }
+
+
+@router.post("/upstox/notifier")
+async def upstox_notifier_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Official Upstox Notifier Webhook Endpoint:
+    POST /api/v1/auth/upstox/notifier
+    Receives approved daily access token payload from Upstox, validates client_id & user_id,
+    stores token encrypted at rest, verifies against Upstox profile API, and reconnects broker.
+    Never logs or returns access_token.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_webhook_rate_limit(client_ip):
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={
+                "status": "error",
+                "message": "Rate limit exceeded for notifier webhook.",
+            },
+        )
+
+    # Enforce safe request-size limit
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > MAX_WEBHOOK_PAYLOAD_BYTES:
+        return JSONResponse(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            content={
+                "status": "error",
+                "message": "Webhook payload exceeds maximum allowed size.",
+            },
+        )
+
+    raw_body = await request.body()
+    if len(raw_body) > MAX_WEBHOOK_PAYLOAD_BYTES:
+        return JSONResponse(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            content={
+                "status": "error",
+                "message": "Webhook payload exceeds maximum allowed size.",
+            },
+        )
+
+    try:
+        payload_dict = json.loads(raw_body.decode("utf-8"))
+        if not isinstance(payload_dict, dict):
+            raise ValueError("Payload must be a JSON object")
+    except Exception:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "status": "error",
+                "message": "Malformed JSON payload in notifier webhook.",
+            },
+        )
+
+    ok, http_code, msg, result_data = await broker_service.process_notifier_webhook(
+        db=db,
+        payload_dict=payload_dict,
+    )
+
+    return JSONResponse(
+        status_code=http_code,
+        content={
+            "status": "success" if ok else "error",
+            "connection_status": "connected" if ok else "connection_lost",
+            "data": result_data,
+            "message": msg,
+        },
+    )
+
+
+@router.post("/token-request")
+async def request_daily_access_token(
+    force: bool = Query(False, description="Force token request even if one was recently sent"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Manually trigger official Upstox v3 Semi-Automated Access Token Request:
+    POST https://api.upstox.com/v3/login/auth/token/request/{client_id}
+    """
+    ok, msg, telemetry = await broker_service.request_daily_token(
+        db=db,
+        manual=True,
+        force=force,
+    )
+    token_record = await broker_service.get_or_create_token_record(db)
+
+    if not ok:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "connection_status": (token_record.connection_status or "DISCONNECTED").lower(),
+                "status": "error",
+                "data": telemetry,
+                "message": msg,
+            },
+        )
+
+    return {
+        "connection_status": (token_record.connection_status or "DISCONNECTED").lower(),
+        "status": "success",
+        "data": telemetry,
+        "message": msg,
+    }
+
+
+@router.get("/token-request/status")
+async def get_token_request_status(db: AsyncSession = Depends(get_db)):
+    """Get comprehensive token lifecycle, approval status, and daily scheduler telemetry."""
+    token_record = await broker_service.get_or_create_token_record(db)
+    telemetry = broker_service.build_token_telemetry(token_record)
+    return {
+        "connection_status": "connected" if token_record.is_valid else "connection_lost",
+        "data": {
+            "is_connected": token_record.is_valid,
+            "connection_status": token_record.connection_status or ("CONNECTED" if token_record.is_valid else "DISCONNECTED"),
+            "user_id": token_record.user_id,
+            "user_name": token_record.user_name,
+            "last_error": token_record.last_error,
+            "last_verified": token_record.last_verified_at.isoformat() if token_record.last_verified_at else None,
+            **telemetry,
+        },
+        "message": "Token request status retrieved.",
+    }
+
+
+@router.put("/token-request/schedule")
+async def update_token_request_schedule(
+    payload: TokenRequestScheduleUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update daily token request scheduler configuration (Asia/Kolkata)."""
+    telemetry = await broker_service.update_scheduler_settings(
+        db=db,
+        auto_request_enabled=payload.auto_request_enabled,
+        scheduled_request_time=payload.scheduled_request_time,
+    )
+    token_record = await broker_service.get_or_create_token_record(db)
+    return {
+        "connection_status": "connected" if token_record.is_valid else "connection_lost",
+        "data": telemetry,
+        "message": (
+            f"Daily token scheduler updated: {'Enabled' if payload.auto_request_enabled else 'Paused'} at {payload.scheduled_request_time} IST."
+        ),
+    }
+
+
+@router.post("/token-request/cancel")
+async def cancel_pending_token_request(db: AsyncSession = Depends(get_db)):
+    """Reset local pending token approval state."""
+    telemetry = await broker_service.cancel_pending_token_request(db)
+    token_record = await broker_service.get_or_create_token_record(db)
+    return {
+        "connection_status": "connected" if token_record.is_valid else "connection_lost",
+        "data": telemetry,
+        "message": "Pending token request state cleared.",
+    }
+

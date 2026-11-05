@@ -6,7 +6,7 @@ T = TypeVar("T")
 
 class APIResponse(BaseModel, Generic[T]):
     """Consistent envelope format returned across all endpoints."""
-    connection_status: Literal["connected", "connection_lost"] = "connected"
+    connection_status: str = "connected"
     data: Optional[T] = None
     message: str = "Success"
 

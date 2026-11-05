@@ -176,8 +176,19 @@ async def test_disconnect_and_reconnect_flow():
             assert "Disconnected" in msg
 
             # 2. Re-enter valid token
-            if original_token:
-                is_connected, msg = await broker_service.update_access_token(db, original_token)
+            with patch(
+                "backend.app.services.upstox_client.upstox_client.get_profile",
+                new_callable=AsyncMock,
+            ) as mock_get_profile:
+                mock_get_profile.return_value = {
+                    "status": "success",
+                    "data": {
+                        "user_id": "5GC3MG",
+                        "user_name": "IMMANUVEL D",
+                        "email": "immannithra@gmail.com",
+                    },
+                }
+                is_connected, msg = await broker_service.update_access_token(db, "valid_fresh_oauth_token")
                 await db.refresh(token_record)
                 assert is_connected is True
                 assert token_record.connection_status == "CONNECTED"
@@ -186,3 +197,17 @@ async def test_disconnect_and_reconnect_flow():
             if original_token:
                 await broker_service.verify_connection(db, force_check=True)
             await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_broker_status_response_model_serialization():
+    """Verify /broker/status response serializes cleanly through APIResponse[BrokerStatusData] across all states."""
+    from backend.app.api.v1.broker import get_broker_status
+    from backend.app.schemas.common import APIResponse
+    from backend.app.schemas.broker import BrokerStatusData
+
+    async with AsyncSessionLocal() as db:
+        resp = await get_broker_status(db)
+        validated = APIResponse[BrokerStatusData].model_validate(resp)
+        assert validated.data is not None
+        assert validated.connection_status in ("connected", "disconnected", "token_expired", "auth_failed", "connection_lost")

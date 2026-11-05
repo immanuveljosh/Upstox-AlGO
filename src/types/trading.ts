@@ -182,6 +182,41 @@ export interface PnlSummary {
   dailyPnl: { date: string; pnl: number; trades: number }[];
 }
 
+export type TokenRequestStatus =
+  | "IDLE"
+  | "REQUESTED_PENDING"
+  | "APPROVED_ACTIVE"
+  | "EXPIRED"
+  | "REJECTED"
+  | "FAILED"
+  | "NOTIFIER_URL_REQUIRED";
+
+export interface TokenManagementTelemetry {
+  token_request_status: TokenRequestStatus | string;
+  token_request_status_label?: string;
+  is_notifier_url_error?: boolean;
+  issued_at: string | null;
+  issued_at_ist: string | null;
+  expires_at: string | null;
+  expires_at_ist: string | null;
+  last_token_request_at: string | null;
+  last_token_request_ist: string | null;
+  last_token_approved_at: string | null;
+  last_token_approved_ist: string | null;
+  authorization_expiry: string | null;
+  authorization_expiry_ist: string | null;
+  notifier_url: string | null;
+  webhook_endpoint: string;
+  webhook_url_status?: string;
+  webhook_url_reason?: string;
+  console_config_status?: string;
+  webhook_delivery_status?: string;
+  auto_request_enabled: boolean;
+  scheduled_request_time: string;
+  next_scheduled_request_ist: string | null;
+  last_error?: string | null;
+}
+
 export interface BrokerCredentials {
   apiKey: string;
   apiSecret: string;

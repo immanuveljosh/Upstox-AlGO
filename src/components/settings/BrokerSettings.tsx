@@ -2,102 +2,287 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useTrading } from "@/context/TradingContext";
-import { ConnectionBadge } from "@/components/ui/ConnectionBadge";
-import { formatISTDateTime } from "@/lib/format";
 import {
-  Key,
-  Lock,
-  Globe,
-  RefreshCw,
-  CheckCircle2,
-  Copy,
-  Eye,
-  EyeOff,
   ShieldCheck,
   Zap,
-  ExternalLink,
-  Info,
+  Key,
+  Globe,
+  CheckCircle2,
   AlertCircle,
-  UserCheck,
-  LogOut,
+  Copy,
+  ExternalLink,
+  RefreshCw,
   Clock,
-  Activity,
-  Check,
+  Wifi,
+  WifiOff,
+  BellRing,
+  CheckCircle,
+  XCircle,
+  ShieldAlert,
+  KeyRound,
+  Calendar,
+  Lock,
+  Radio,
+  Eye,
+  EyeOff,
 } from "lucide-react";
+import { TokenManagementTelemetry } from "@/types/trading";
+
+interface BrokerSettingsData {
+  api_key: string;
+  api_key_masked: string;
+  has_api_secret: boolean;
+  api_secret_masked: string;
+  redirect_uri: string;
+  has_active_token: boolean;
+  access_token_masked: string;
+  user_id: string | null;
+  user_name: string | null;
+  email: string | null;
+  broker_name: string;
+  connection_status: string;
+  is_connected: boolean;
+  latency_ms: number;
+  last_verified: string | null;
+  last_error: string | null;
+  // Token telemetry
+  token_request_status?: string;
+  token_request_status_label?: string;
+  is_notifier_url_error?: boolean;
+  issued_at_ist?: string | null;
+  expires_at_ist?: string | null;
+  last_token_request_ist?: string | null;
+  last_token_approved_ist?: string | null;
+  authorization_expiry_ist?: string | null;
+  notifier_url?: string | null;
+  webhook_endpoint?: string | null;
+  webhook_url_status?: string;
+  webhook_url_reason?: string;
+  console_config_status?: string;
+  webhook_delivery_status?: string;
+  auto_request_enabled?: boolean;
+  scheduled_request_time?: string;
+  next_scheduled_request_ist?: string | null;
+}
 
 export function BrokerSettings() {
-  const {
-    credentials,
-    updateCredentials,
-    connectionStatus,
-    toggleConnection,
-    disconnectBroker,
-    reconnectBroker,
-    latencyMs,
-    lastVerified,
-    addToast,
-  } = useTrading();
+  const { addToast, reconnectBroker, disconnectBroker } = useTrading();
 
-  const [apiKey, setApiKey] = useState(credentials.apiKey || "");
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<BrokerSettingsData | null>(null);
+
+  // Form states
+  const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
-  const [redirectUrl, setRedirectUrl] = useState(
-    credentials.redirectUrl || "http://localhost:8000/api/v1/auth/callback"
-  );
-  const [accessToken, setAccessToken] = useState("");
-  const [hasConfiguredSecret, setHasConfiguredSecret] = useState(false);
+  const [redirectUri, setRedirectUri] = useState("");
+  const [manualToken, setManualToken] = useState("");
+
+  // Scheduler states
+  const [autoEnabled, setAutoEnabled] = useState(true);
+  const [scheduledTime, setScheduledTime] = useState("08:45");
+
+  // Interaction loaders
   const [showSecret, setShowSecret] = useState(false);
-  const [showToken, setShowToken] = useState(false);
-  const [isCopied, setIsCopied] = useState(false);
-  const [isAuthorizing, setIsAuthorizing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isTestingCreds, setIsTestingCreds] = useState(false);
+  const [testResult, setTestResult] = useState<{ valid: boolean; message: string } | null>(null);
+  const [isUpdatingCreds, setIsUpdatingCreds] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isRequestingToken, setIsRequestingToken] = useState(false);
+  const [isValidatingWebhook, setIsValidatingWebhook] = useState(false);
+  const [isSavingScheduler, setIsSavingScheduler] = useState(false);
+  const [isCancelingRequest, setIsCancelingRequest] = useState(false);
 
-  // Load genuine backend credentials on mount
-  useEffect(() => {
-    async function loadSettings() {
-      try {
-        const res = await fetch("http://localhost:8000/api/v1/settings/all");
-        if (res.ok) {
-          const json = await res.json();
-          const d = json.data;
-          if (d) {
-            if (d.api_key) setApiKey(d.api_key);
-            if (d.redirect_uri) setRedirectUrl(d.redirect_uri);
-            if (d.has_api_secret) setHasConfiguredSecret(true);
-            if (d.access_token_masked) setAccessToken(d.access_token_masked);
-          }
-        }
-      } catch {
-        // Backend offline
+  // Clipboard copy feedback
+  const [copiedRedirect, setCopiedRedirect] = useState(false);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
+
+  // Webhook validation result
+  const [webhookResult, setWebhookResult] = useState<{
+    url: string;
+    endpoint_status: string;
+    is_https: boolean;
+    is_reachable: boolean;
+    latency_ms: number;
+    diagnosis: string;
+  } | null>(null);
+
+  const fetchSettings = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/settings/all");
+      const json = await res.json();
+      if (res.ok && json.data) {
+        const d: BrokerSettingsData = json.data;
+        setData(d);
+        setApiKey(d.api_key || "");
+        setRedirectUri(d.redirect_uri || "http://localhost:8000/api/v1/auth/callback");
+        setAutoEnabled(d.auto_request_enabled ?? true);
+        setScheduledTime(d.scheduled_request_time || "08:45");
       }
+    } catch {
+      if (!silent) {
+        addToast({
+          type: "error",
+          title: "Connection Failed",
+          message: "Could not fetch settings from backend server at http://localhost:8000.",
+        });
+      }
+    } finally {
+      if (!silent) setLoading(false);
     }
-    loadSettings();
-  }, []);
+  }, [addToast]);
 
-  const handleSave = async (e: React.FormEvent) => {
+  useEffect(() => {
+    fetchSettings();
+    // Background polling every 12 seconds to keep live telemetry fresh
+    const timer = setInterval(() => {
+      fetchSettings(true);
+    }, 12000);
+    return () => clearInterval(timer);
+  }, [fetchSettings]);
+
+  // Handle Verify Connection
+  const handleVerify = async () => {
+    setIsVerifying(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/broker/status");
+      const json = await res.json();
+      if (res.ok && json.data?.is_connected) {
+        addToast({
+          type: "success",
+          title: "Broker Connected",
+          message: `Connected to Upstox Live OMS (${json.data.user_name || "Trader"} • UCC: ${json.data.user_id || "5GC3MG"}). Latency: ${json.data.latency_ms}ms`,
+        });
+      } else {
+        addToast({
+          type: "warning",
+          title: "Verification Failed",
+          message: json.message || "Broker is disconnected. Login or request a token.",
+        });
+      }
+      await fetchSettings(true);
+    } catch {
+      addToast({
+        type: "error",
+        title: "API Error",
+        message: "Failed to communicate with backend broker status service.",
+      });
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  // Handle Disconnect
+  const handleDisconnect = async () => {
+    setIsDisconnecting(true);
+    try {
+      await disconnectBroker();
+      await fetchSettings(true);
+      addToast({
+        type: "info",
+        title: "Broker Disconnected",
+        message: "Upstox broker session disconnected. Access token cleared.",
+      });
+    } catch {
+      addToast({
+        type: "error",
+        title: "Disconnect Failed",
+        message: "Failed to disconnect broker session.",
+      });
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  // Handle Test Credentials
+  const handleTestCredentials = async () => {
+    setIsTestingCreds(true);
+    setTestResult(null);
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const keyToTest = apiKey.trim() || data?.api_key || "";
+    const secretProvided = apiSecret.trim() || (data?.has_api_secret ? "configured" : "");
+    const redirect = redirectUri.trim() || data?.redirect_uri || "";
+
+    if (!keyToTest) {
+      const res = { valid: false, message: "Client ID (API Key) is missing." };
+      setTestResult(res);
+      addToast({ type: "error", title: "Validation Failed", message: res.message });
+      setIsTestingCreds(false);
+      return;
+    }
+
+    if (!uuidRegex.test(keyToTest)) {
+      const res = {
+        valid: false,
+        message: "Client ID must be a valid 36-character UUID (e.g., 22e100c2-59e7-4d4d-98a0-d69ae3b08c87).",
+      };
+      setTestResult(res);
+      addToast({ type: "error", title: "Format Error", message: res.message });
+      setIsTestingCreds(false);
+      return;
+    }
+
+    if (!secretProvided) {
+      const res = { valid: false, message: "Client Secret is missing or unconfigured." };
+      setTestResult(res);
+      addToast({ type: "error", title: "Validation Failed", message: res.message });
+      setIsTestingCreds(false);
+      return;
+    }
+
+    if (!redirect.includes("/api/v1/auth/callback")) {
+      const res = { valid: false, message: "OAuth Redirect URI path must end with '/api/v1/auth/callback'." };
+      setTestResult(res);
+      addToast({ type: "error", title: "Redirect URI Error", message: res.message });
+      setIsTestingCreds(false);
+      return;
+    }
+
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/broker/status");
+      const json = await res.json();
+      if (res.ok && json.data?.is_connected) {
+        const msg = `Credentials active and verified live with Upstox Profile API (${json.data.user_name || "Trader"} • UCC: ${json.data.user_id || "5GC3MG"}). Latency: ${json.data.latency_ms}ms.`;
+        setTestResult({ valid: true, message: msg });
+        addToast({ type: "success", title: "Credentials Valid", message: msg });
+      } else {
+        const msg = `Format check passed! Client ID (${keyToTest.slice(0, 8)}••••) is valid UUID and secret is configured. Complete Login via Upstox to connect session.`;
+        setTestResult({ valid: true, message: msg });
+        addToast({ type: "info", title: "Credential Format Valid", message: msg });
+      }
+    } catch {
+      setTestResult({ valid: false, message: "Backend verification service unreachable." });
+      addToast({ type: "error", title: "Verification Failed", message: "Backend server is unreachable." });
+    } finally {
+      setIsTestingCreds(false);
+    }
+  };
+
+  // Handle Update Credentials
+  const handleUpdateCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!apiKey.trim()) {
       addToast({
         type: "error",
-        title: "Validation Error",
-        message: "API Key (Client ID) cannot be empty.",
+        title: "Missing API Key",
+        message: "API Key (Client ID) is required.",
       });
       return;
     }
 
-    setIsSaving(true);
+    setIsUpdatingCreds(true);
     try {
       const payload: Record<string, string> = {
         api_key: apiKey.trim(),
-        redirect_uri: redirectUrl.trim(),
+        redirect_uri: redirectUri.trim(),
       };
-      // Only include secret if user entered a new secret
       if (apiSecret.trim()) {
         payload.api_secret = apiSecret.trim();
       }
-      // Only include token if user entered an unmasked token
-      if (accessToken.trim() && !accessToken.includes("••••")) {
-        payload.access_token = accessToken.trim();
+      if (manualToken.trim()) {
+        payload.access_token = manualToken.trim();
       }
 
       const res = await fetch("http://localhost:8000/api/v1/settings/broker", {
@@ -105,285 +290,471 @@ export function BrokerSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
       const json = await res.json();
 
       if (res.ok) {
-        if (apiSecret.trim()) {
-          setHasConfiguredSecret(true);
-          setApiSecret("");
-        }
-        updateCredentials({
-          apiKey: apiKey.trim(),
-          redirectUrl: redirectUrl.trim(),
-          ucc: json.data?.user_id || credentials.ucc,
-          accountName: json.data?.user_name || credentials.accountName,
+        addToast({
+          type: "success",
+          title: "Credentials Saved",
+          message: json.message || "Upstox API credentials updated successfully.",
         });
-
-        if (json.data?.is_connected) {
-          addToast({
-            type: "success",
-            title: "Upstox Live Verified",
-            message: `Connected as ${json.data.user_name || "User"} (${json.data.user_id || "UCC"}).`,
-          });
-        } else {
-          addToast({
-            type: "info",
-            title: "Credentials Saved",
-            message: json.message || "Upstox credentials updated in backend database.",
-          });
-        }
+        setApiSecret("");
+        setManualToken("");
+        await fetchSettings(true);
       } else {
         addToast({
           type: "error",
-          title: "Save Failed",
+          title: "Update Failed",
           message: json.message || "Failed to update broker credentials.",
         });
-      }
-    } catch (err: any) {
-      addToast({
-        type: "error",
-        title: "Connection Error",
-        message: err?.message || "Could not reach FastAPI server at http://localhost:8000.",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleCopyRedirect = () => {
-    navigator.clipboard.writeText(redirectUrl);
-    setIsCopied(true);
-    addToast({
-      type: "info",
-      title: "Copied",
-      message: "Redirect URI copied to clipboard.",
-    });
-    setTimeout(() => setIsCopied(false), 2000);
-  };
-
-  const handleOAuthAuthorize = async () => {
-    setIsAuthorizing(true);
-    try {
-      // Obtain official Upstox OAuth URL with CSRF state protection from backend
-      const res = await fetch("http://localhost:8000/api/v1/auth/login");
-      const json = await res.json();
-
-      if (res.ok && json.data?.authorization_url) {
-        // Redirect browser to official Upstox dialog
-        window.location.href = json.data.authorization_url;
-      } else {
-        addToast({
-          type: "error",
-          title: "OAuth Initialization Failed",
-          message: json.message || "Could not generate Upstox OAuth authorization URL.",
-        });
-        setIsAuthorizing(false);
       }
     } catch {
       addToast({
         type: "error",
-        title: "Backend Unreachable",
-        message: "Failed to connect to backend on http://localhost:8000 to initiate OAuth flow.",
+        title: "Network Error",
+        message: "Could not reach backend server to save credentials.",
       });
-      setIsAuthorizing(false);
+    } finally {
+      setIsUpdatingCreds(false);
     }
   };
 
-  const handleManualVerify = async () => {
-    setIsVerifying(true);
-    await reconnectBroker();
-    setIsVerifying(false);
+  // Handle OAuth Login
+  const handleOAuthLogin = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/auth/login");
+      const json = await res.json();
+      if (res.ok && json.data?.authorization_url) {
+        window.location.href = json.data.authorization_url;
+      } else {
+        const cid = apiKey || data?.api_key || "22e100c2-59e7-4d4d-98a0-d69ae3b08c87";
+        const redUri = redirectUri || data?.redirect_uri || "http://localhost:8000/api/v1/auth/callback";
+        window.location.href = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${cid}&redirect_uri=${encodeURIComponent(redUri)}`;
+      }
+    } catch {
+      const cid = apiKey || data?.api_key || "22e100c2-59e7-4d4d-98a0-d69ae3b08c87";
+      const redUri = redirectUri || data?.redirect_uri || "http://localhost:8000/api/v1/auth/callback";
+      window.location.href = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${cid}&redirect_uri=${encodeURIComponent(redUri)}`;
+    }
   };
 
-  const isConnected = connectionStatus === "CONNECTED";
+  // Handle Semi-Automated Token Request
+  const handleRequestToken = async () => {
+    setIsRequestingToken(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/auth/token-request?force=true", {
+        method: "POST",
+      });
+      const json = await res.json();
+
+      if (res.ok && json.status === "success") {
+        addToast({
+          type: "success",
+          title: "Token Request Initiated",
+          message: "Request sent to Upstox. Please approve the prompt in your Upstox Mobile App or WhatsApp.",
+        });
+      } else {
+        addToast({
+          type: "warning",
+          title: "Token Request Rejected",
+          message: json.message || "Failed to initiate token request.",
+        });
+      }
+      await fetchSettings(true);
+    } catch {
+      addToast({
+        type: "error",
+        title: "Request Error",
+        message: "Failed to connect to backend token request service.",
+      });
+    } finally {
+      setIsRequestingToken(false);
+    }
+  };
+
+  // Handle Cancel Token Request
+  const handleCancelRequest = async () => {
+    setIsCancelingRequest(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/auth/token-request/cancel", {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (res.ok) {
+        addToast({
+          type: "info",
+          title: "State Cleared",
+          message: "Pending token request state was reset.",
+        });
+        await fetchSettings(true);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsCancelingRequest(false);
+    }
+  };
+
+  // Handle Webhook Endpoint Validation
+  const handleValidateWebhook = async () => {
+    setIsValidatingWebhook(true);
+    setWebhookResult(null);
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/auth/webhook/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (json.data) {
+        setWebhookResult(json.data);
+        if (json.data.is_reachable) {
+          addToast({
+            type: "success",
+            title: "Webhook Endpoint Reachable",
+            message: `HTTPS webhook listener is online (${json.data.latency_ms}ms). Note: Confirm registration in Upstox Developer Console.`,
+          });
+        } else {
+          addToast({
+            type: "warning",
+            title: "Webhook Unreachable",
+            message: json.data.diagnosis || "Public HTTPS webhook endpoint could not be reached.",
+          });
+        }
+      }
+      await fetchSettings(true);
+    } catch {
+      addToast({
+        type: "error",
+        title: "Validation Error",
+        message: "Could not execute webhook endpoint validation test.",
+      });
+    } finally {
+      setIsValidatingWebhook(false);
+    }
+  };
+
+  // Handle Save Scheduler
+  const handleSaveScheduler = async () => {
+    setIsSavingScheduler(true);
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/auth/token-request/schedule", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          auto_request_enabled: autoEnabled,
+          scheduled_request_time: scheduledTime,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        addToast({
+          type: "success",
+          title: "Scheduler Saved",
+          message: json.message || "Daily token request scheduler updated.",
+        });
+        await fetchSettings(true);
+      } else {
+        addToast({
+          type: "error",
+          title: "Save Failed",
+          message: json.message || "Could not save scheduler settings.",
+        });
+      }
+    } catch {
+      addToast({
+        type: "error",
+        title: "Network Error",
+        message: "Failed to communicate with scheduler API.",
+      });
+    } finally {
+      setIsSavingScheduler(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, type: "redirect" | "webhook") => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    if (type === "redirect") {
+      setCopiedRedirect(true);
+      setTimeout(() => setCopiedRedirect(false), 2000);
+    } else {
+      setCopiedWebhook(true);
+      setTimeout(() => setCopiedWebhook(false), 2000);
+    }
+    addToast({
+      type: "info",
+      title: "Copied to Clipboard",
+      message: `${type === "redirect" ? "OAuth Redirect URI" : "Notifier Webhook URL"} copied.`,
+    });
+  };
+
+  const isConnected = data?.is_connected ?? false;
+  const connStatus = data?.connection_status || "DISCONNECTED";
+  const reqStatus = data?.token_request_status || "IDLE";
+  const reqStatusLabel = data?.token_request_status_label || (
+    reqStatus === "NOTIFIER_URL_REQUIRED" ? "Console Configuration Required" :
+    reqStatus === "REQUESTED_PENDING" ? "Request Pending Approval" :
+    reqStatus === "APPROVED_ACTIVE" && isConnected ? "Token Verified" :
+    connStatus === "AUTH_FAILED" ? "Authentication Failed" : "Console Configuration Required"
+  );
+
+  const webhookEndpoint = data?.notifier_url || data?.webhook_endpoint || "https://radiation-handling-fired-lbs.trycloudflare.com/api/v1/auth/upstox/notifier";
+
+  if (loading && !data) {
+    return (
+      <div className="rounded-2xl bg-slate-900/60 border border-slate-800 p-8 text-center">
+        <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin mx-auto mb-3" />
+        <span className="text-xs text-slate-400">Loading Upstox Broker Telemetry...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Active Account Identity Card */}
-      <div className="rounded-xl bg-slate-900 border border-slate-800 p-5 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-emerald-400" />
-              <h3 className="text-base font-bold text-white tracking-tight">
-                Broker API: UPSTOX v2 LIVE
-              </h3>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 uppercase">
-                Official Open API
-              </span>
+      {/* SECTION A: BROKER CONNECTION STATUS CARD */}
+      <div className="rounded-2xl bg-slate-900/80 border border-slate-800 p-6 shadow-xl backdrop-blur-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+              <Zap className="w-5 h-5" />
             </div>
-            <p className="text-xs text-slate-400 mt-1">
-              Live trading and historical data routed via official Upstox Python SDK v2 & OMS.
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-white tracking-tight">
+                  Broker API: Upstox v2 / v3 LIVE
+                </h2>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-semibold">
+                  OFFICIAL OPEN API
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Live trading and historical data routed via official Upstox Python SDK v2 & OMS.
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <ConnectionBadge />
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Live Connection Status Badge */}
+            {isConnected ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <Wifi className="w-3.5 h-3.5" />
+                <span>Connected</span>
+                <span className="text-[11px] font-mono text-emerald-400/80 pl-1 border-l border-emerald-500/30">
+                  {data?.latency_ms ?? 95}ms
+                </span>
+              </div>
+            ) : connStatus === "TOKEN_EXPIRED" ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs font-semibold">
+                <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                <span>Token Expired</span>
+                <span className="text-[10px] text-amber-300/80 pl-1 border-l border-amber-500/30">
+                  Daily 03:30 AM Cutoff
+                </span>
+              </div>
+            ) : connStatus === "AUTH_FAILED" ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/15 border border-rose-500/40 text-rose-400 text-xs font-semibold">
+                <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                <span>Auth Failed</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 text-xs font-medium">
+                <WifiOff className="w-3.5 h-3.5" />
+                <span>Disconnected</span>
+              </div>
+            )}
 
-            {/* Login with Upstox Button */}
+            {/* Action Buttons */}
             <button
-              type="button"
-              onClick={handleOAuthAuthorize}
-              disabled={isAuthorizing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-slate-950 transition-all shadow-md shadow-emerald-950 cursor-pointer disabled:opacity-50"
+              onClick={handleOAuthLogin}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-950 cursor-pointer"
             >
               <Zap className="w-3.5 h-3.5 fill-current" />
-              <span>{isAuthorizing ? "Connecting..." : "Login with Upstox"}</span>
+              <span>Login with Upstox</span>
             </button>
 
-            {/* Disconnect / Reconnect Button */}
-            {isConnected ? (
+            <button
+              onClick={handleVerify}
+              disabled={isVerifying}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isVerifying ? "animate-spin" : ""}`} />
+              <span>Verify Status</span>
+            </button>
+
+            {isConnected && (
               <button
-                type="button"
-                onClick={disconnectBroker}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-medium transition-colors"
-                title="Disconnect broker session"
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-medium border border-rose-900/50 transition-colors cursor-pointer"
               >
-                <LogOut className="w-3.5 h-3.5" />
                 <span>Disconnect</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleManualVerify}
-                disabled={isVerifying}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition-colors disabled:opacity-50"
-                title="Verify connection with Upstox profile endpoint"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isVerifying ? "animate-spin text-emerald-400" : ""}`} />
-                <span>Verify Status</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* Authenticated Trader Identity Diagnostics Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-4 text-xs">
-          <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1">
-            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
-              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Trader Account</span>
+        {/* Live Identity & Telemetry Metrics */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-5">
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+              Trader Account
+            </span>
+            <div className="mt-1 font-semibold text-white text-xs truncate">
+              {data?.user_name || "Immanuel D"}
             </div>
-            <div className="font-bold text-slate-100 font-mono">
-              {credentials.accountName || "IMMANUVEL D"}
-            </div>
-            <div className="text-[10px] text-slate-500 font-mono">
-              UCC: <strong className="text-slate-300">{credentials.ucc || "5GC3MG"}</strong>
+            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+              UCC: {data?.user_id || "5GC3MG"}
             </div>
           </div>
 
-          <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1">
-            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-cyan-400" />
-              <span>API Ping Latency</span>
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+              API Ping Latency
+            </span>
+            <div className="mt-1 font-mono font-bold text-xs text-emerald-400">
+              {isConnected ? `${data?.latency_ms ?? 95}ms` : "Offline"}
             </div>
-            <div className="font-bold text-slate-100 font-mono">
-              {isConnected ? (
-                <span className="text-emerald-400">{latencyMs > 0 ? `${latencyMs} ms` : "Verified"}</span>
-              ) : (
-                <span className="text-slate-500">Offline</span>
-              )}
-            </div>
-            <div className="text-[10px] text-slate-500 font-mono">
+            <div className="text-[11px] text-slate-400 mt-0.5">
               Upstox v2 Gateway
             </div>
           </div>
 
-          <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1">
-            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-purple-400" />
-              <span>Last Verification</span>
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+              Last Verification
+            </span>
+            <div className="mt-1 font-mono text-xs text-slate-200">
+              {data?.last_verified ? new Date(data.last_verified).toLocaleTimeString() : "Never"}
             </div>
-            <div className="font-medium text-slate-200 font-mono text-[11px] truncate">
-              {lastVerified ? formatISTDateTime(lastVerified) : "Never"}
-            </div>
-            <div className="text-[10px] text-slate-500">
+            <div className="text-[11px] text-slate-400 mt-0.5">
               User Profile Handshake
             </div>
           </div>
 
-          <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1">
-            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
-              <Key className="w-3.5 h-3.5 text-amber-400" />
-              <span>Token Lifecycle</span>
+          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+              Token Lifecycle
+            </span>
+            <div className={`mt-1 font-semibold text-xs ${isConnected ? "text-emerald-400" : "text-amber-400"}`}>
+              {isConnected ? "Active 24h Session" : "Requires Authorization"}
             </div>
-            <div className="font-semibold text-slate-200">
-              {isConnected ? (
-                <span className="text-emerald-400">24h Valid (Daily)</span>
-              ) : connectionStatus === "TOKEN_EXPIRED" ? (
-                <span className="text-amber-400">Expired Today</span>
-              ) : (
-                <span className="text-slate-500">No Active Token</span>
-              )}
-            </div>
-            <div className="text-[10px] text-slate-500">
-              Requires daily 2FA login
+            <div className="text-[11px] font-mono text-slate-400 mt-0.5 truncate">
+              {data?.expires_at_ist || "Daily 03:30 AM IST"}
             </div>
           </div>
         </div>
+
+        {/* Display Error Banner if Authentication / Validation Failed */}
+        {data?.last_error && !isConnected && (
+          <div className="mt-4 p-3.5 rounded-xl bg-rose-950/30 border border-rose-900/50 flex items-start gap-2.5 text-xs text-rose-300">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <span className="font-semibold text-rose-200">Upstox Connection Notice:</span>
+              <p className="font-mono text-[11px] leading-relaxed text-rose-300/90">{data.last_error}</p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Upstox API Credentials Configuration Form */}
-      <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 shadow-sm">
-        <div className="pb-3 border-b border-slate-800">
-          <h4 className="text-sm font-bold text-white tracking-tight">
-            Upstox Developer App Credentials
-          </h4>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Registered on <a href="https://developer.upstox.com" target="_blank" rel="noopener noreferrer" className="text-emerald-400 underline font-medium">developer.upstox.com</a>. Secrets are stored encrypted in backend database.
-          </p>
+      {/* SECTION B: API CREDENTIALS FORM */}
+      <div className="rounded-2xl bg-slate-900/80 border border-slate-800 p-6 shadow-xl backdrop-blur-sm">
+        <div className="flex items-center gap-2.5 pb-4 border-b border-slate-800">
+          <Key className="w-5 h-5 text-emerald-400" />
+          <div>
+            <h3 className="text-sm font-bold text-white tracking-tight">
+              Upstox Developer App Credentials
+            </h3>
+            <p className="text-xs text-slate-400">
+              Registered on <a href="https://developer.upstox.com" target="_blank" rel="noreferrer" className="text-emerald-400 hover:underline inline-flex items-center gap-1">developer.upstox.com <ExternalLink className="w-3 h-3" /></a>. Secrets are encrypted at rest with Fernet AES-128.
+            </p>
+          </div>
         </div>
 
-        <form onSubmit={handleSave} className="mt-5 space-y-4">
-          {/* API Key (Client ID) */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              API Key (Client ID)
-            </label>
-            <div className="relative">
-              <Key className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"
-                placeholder="e.g. 22e100c2-59e7-4d4d-98a0-d69ae3b08c87"
-                required
-              />
+        <form onSubmit={handleUpdateCredentials} className="mt-5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Client ID / API Key */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                API Key (Client ID)
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="22e100c2-59e7-4d4d-98a0-d69ae3b08c87"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-xs focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+              </div>
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Found in your Upstox Developer Console App Details.
+              </span>
+            </div>
+
+            {/* Client Secret */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-300">
+                  API Secret (Client Secret)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowSecret(!showSecret)}
+                  className="text-[10px] text-slate-400 hover:text-slate-200 flex items-center gap-1 transition-colors"
+                >
+                  {showSecret ? (
+                    <>
+                      <EyeOff className="w-3 h-3" />
+                      <span>Hide Secret</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3 h-3" />
+                      <span>Show Secret</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <div className="relative">
+                <input
+                  type={showSecret ? "text" : "password"}
+                  value={apiSecret}
+                  onChange={(e) => setApiSecret(e.target.value)}
+                  placeholder={data?.has_api_secret ? "•••••••••••• (Leave blank to keep existing)" : "Enter App Client Secret"}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-xs focus:outline-none focus:border-emerald-500 transition-colors pr-10"
+                />
+              </div>
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Never shared with frontend. Encrypted at rest in backend database.
+              </span>
             </div>
           </div>
 
-          {/* API Secret (Client Secret) */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-300">
-                API Secret (Client Secret)
-              </label>
-              {hasConfiguredSecret && (
-                <span className="text-[11px] font-mono text-emerald-400 flex items-center gap-1">
-                  <Check className="w-3 h-3" /> Configured in Database
-                </span>
+          {/* Test Result Feedback */}
+          {testResult && (
+            <div
+              className={`p-3 rounded-xl border flex items-start gap-2.5 text-xs ${
+                testResult.valid
+                  ? "bg-emerald-950/30 border-emerald-900/50 text-emerald-300"
+                  : "bg-rose-950/30 border-rose-900/50 text-rose-300"
+              }`}
+            >
+              {testResult.valid ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
               )}
+              <div className="space-y-0.5">
+                <span className="font-semibold">{testResult.valid ? "Credential Check Succeeded" : "Credential Validation Failed"}</span>
+                <p className="font-mono text-[11px] leading-relaxed opacity-90">{testResult.message}</p>
+              </div>
             </div>
-            <div className="relative">
-              <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type={showSecret ? "text" : "password"}
-                value={apiSecret}
-                onChange={(e) => setApiSecret(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-10 py-2 text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"
-                placeholder={hasConfiguredSecret ? "•••••••••••• (Leave blank to keep existing secret)" : "Enter client secret"}
-              />
-              <button
-                type="button"
-                onClick={() => setShowSecret(!showSecret)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-              >
-                {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
+          )}
 
           {/* OAuth Redirect URI */}
           <div>
@@ -391,142 +762,309 @@ export function BrokerSettings() {
               <label className="text-xs font-semibold text-slate-300">
                 OAuth Redirect URI
               </label>
-              <a
-                href="https://account.upstox.com/developer/apps"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[11px] text-emerald-400 hover:underline flex items-center gap-1"
-              >
-                <span>Upstox Developer Apps</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
+              <span className="text-[10px] text-slate-400">
+                Must match Upstox Developer Console exactly
+              </span>
             </div>
-            <div className="relative flex items-center">
-              <Globe className="w-4 h-4 absolute left-3 text-slate-500 pointer-events-none" />
-              <input
-                type="text"
-                value={redirectUrl}
-                onChange={(e) => setRedirectUrl(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-24 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-emerald-500/50"
-              />
-              <button
-                type="button"
-                onClick={handleCopyRedirect}
-                className="absolute right-1.5 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium flex items-center gap-1 transition-colors"
-              >
-                {isCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{isCopied ? "Copied" : "Copy URI"}</span>
-              </button>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Must exact-match the Redirect URL registered in your Upstox Developer App console.
-            </p>
-
-            <div className="mt-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300 space-y-1">
-              <div className="flex items-center gap-1.5 font-semibold text-amber-200">
-                <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>Redirect URI Invariant Check</span>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={redirectUri}
+                  onChange={(e) => setRedirectUri(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 font-mono text-xs focus:outline-none focus:border-emerald-500 transition-colors"
+                />
               </div>
-              <p className="text-[11px] text-slate-300 leading-relaxed">
-                If Upstox returns <code>UDAPI100016: Invalid Credentials</code>, copy <code>http://localhost:8000/api/v1/auth/callback</code> and update the Redirect URL on developer.upstox.com.
-              </p>
-            </div>
-          </div>
-
-          {/* Active Access Token (Manual or OAuth Generated) */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Active Upstox Access Token
-            </label>
-            <div className="relative">
-              <Key className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type={showToken ? "text" : "password"}
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-10 py-2 text-xs font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 truncate"
-                placeholder="eyJ0eXAiOiJKV1QiLC..."
-              />
               <button
                 type="button"
-                onClick={() => setShowToken(!showToken)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                onClick={() => copyToClipboard(redirectUri, "redirect")}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors shrink-0"
               >
-                {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {copiedRedirect ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="text-emerald-400">Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy URI</span>
+                  </>
+                )}
               </button>
             </div>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Automatically managed via OAuth 2.0 handshake. You may also paste a daily token manually.
-            </p>
           </div>
 
-          {/* Submit Save Button */}
-          <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <span className="text-[11px] text-slate-500">
-              Active session UCC: <strong className="text-slate-300">{credentials.ucc || "5GC3MG"}</strong> ({credentials.accountName || "IMMANUVEL D"})
+          <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
+            <span className="text-[11px] text-slate-400">
+              Changes take effect immediately across all background trading loops.
             </span>
-
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 text-xs font-bold transition-all shadow-md shadow-emerald-950 cursor-pointer disabled:opacity-50"
-            >
-              {isSaving ? "Saving..." : "Update API Credentials"}
-            </button>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleTestCredentials}
+                disabled={isTestingCreds}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isTestingCreds ? "animate-spin" : ""}`} />
+                <span>Test Credentials</span>
+              </button>
+              <button
+                type="submit"
+                disabled={isUpdatingCreds}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-950 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isUpdatingCreds ? "animate-spin" : ""}`} />
+                <span>Save Credentials</span>
+              </button>
+            </div>
           </div>
         </form>
       </div>
 
-      {/* OAuth 2.0 Flow Architecture Guide */}
-      <div className="rounded-xl bg-slate-900/60 border border-slate-800 p-5 space-y-3">
-        <div className="flex items-center gap-2 text-slate-200">
-          <Info className="w-4 h-4 text-emerald-400" />
-          <h4 className="text-xs font-bold uppercase tracking-wider">
-            Upstox OAuth 2.0 Handshake Workflow
-          </h4>
+      {/* SECTION C & D: SEMI-AUTOMATED DAILY TOKEN SYSTEM & NOTIFIER WEBHOOK */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* SEMI-AUTOMATED TOKEN SYSTEM */}
+        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 p-6 shadow-xl backdrop-blur-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <BellRing className="w-5 h-5 text-cyan-400" />
+                <h3 className="text-sm font-bold text-white tracking-tight">
+                  Daily Token Management (v3 API)
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+                SEMI-AUTOMATED
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-400 mt-3 leading-relaxed">
+              Triggers the official Upstox endpoint: <code className="text-slate-300 font-mono text-[11px]">POST /v3/login/auth/token/request</code>.
+              Upstox delivers a push approval to your mobile app or WhatsApp. Once approved, the token is automatically delivered to your Notifier Webhook.
+            </p>
+
+            {/* Current Request Status Banner */}
+            <div className="mt-4 p-4 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-300">Request Lifecycle Status</span>
+                <span
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase border ${
+                    reqStatusLabel === "Token Verified"
+                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                      : reqStatusLabel === "Request Pending Approval"
+                      ? "bg-amber-500/15 text-amber-300 border-amber-500/30 animate-pulse"
+                      : reqStatusLabel === "Authentication Failed"
+                      ? "bg-rose-500/15 text-rose-400 border-rose-500/30"
+                      : "bg-slate-800 text-slate-300 border-slate-700"
+                  }`}
+                >
+                  {reqStatusLabel}
+                </span>
+              </div>
+
+              {/* Status details & timestamps */}
+              <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
+                <div>
+                  <span className="text-slate-400 block">Last Token Request:</span>
+                  <span className="font-mono text-slate-200">{data?.last_token_request_ist || "None"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Last Token Approval:</span>
+                  <span className="font-mono text-emerald-400">{data?.last_token_approved_ist || "None"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Token Expiry:</span>
+                  <span className="font-mono text-slate-200">{data?.expires_at_ist || "03:30 AM IST Daily"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block">Next Scheduled:</span>
+                  <span className="font-mono text-cyan-300">{data?.next_scheduled_request_ist || "08:45 AM IST"}</span>
+                </div>
+              </div>
+
+              {reqStatus === "REQUESTED_PENDING" && (
+                <div className="mt-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                    <span>Awaiting approval in Upstox App / WhatsApp...</span>
+                  </div>
+                  <button
+                    onClick={handleCancelRequest}
+                    disabled={isCancelingRequest}
+                    className="text-xs text-amber-400 hover:text-amber-200 underline font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Daily Scheduler Configuration */}
+            <div className="mt-4 pt-4 border-t border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-cyan-400" />
+                  <span className="text-xs font-semibold text-slate-200">Daily Token Scheduler</span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoEnabled}
+                    onChange={(e) => setAutoEnabled(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="time"
+                  value={scheduledTime}
+                  onChange={(e) => setScheduledTime(e.target.value)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                />
+                <span className="text-xs text-slate-400">IST (Mon-Fri Trading Days)</span>
+                <button
+                  type="button"
+                  onClick={handleSaveScheduler}
+                  disabled={isSavingScheduler}
+                  className="ml-auto px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors"
+                >
+                  Save Schedule
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 pt-4 border-t border-slate-800 flex items-center justify-between">
+            <span className="text-[11px] text-slate-400">
+              Only 1 request required per trading day.
+            </span>
+            <button
+              onClick={handleRequestToken}
+              disabled={isRequestingToken}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs transition-all shadow-md shadow-cyan-950 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRequestingToken ? "animate-spin" : ""}`} />
+              <span>Request New Token</span>
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-          <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80">
-            <div className="flex items-center gap-1.5 text-emerald-400 font-semibold mb-1">
-              <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-center leading-5 text-[10px]">1</span>
-              <span>Authorization Request</span>
+        {/* NOTIFIER WEBHOOK CONFIGURATION */}
+        <div className="rounded-2xl bg-slate-900/80 border border-slate-800 p-6 shadow-xl backdrop-blur-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Globe className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-sm font-bold text-white tracking-tight">
+                  Notifier Webhook Configuration
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
+                UPSTOX APPENDIX
+              </span>
             </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Clicking <strong>Login with Upstox</strong> opens the official 2FA dialog with CSRF state protection.
+
+            <p className="text-xs text-slate-400 mt-3 leading-relaxed">
+              Upstox sends approved access tokens to your registered HTTPS Notifier Webhook. Register this exact public URL in your Upstox Developer App:
             </p>
-            <div className="mt-2 text-[10px] font-mono text-slate-500 truncate">
-              api.upstox.com/v2/login/authorization/dialog
+
+            {/* Configured Webhook URL Field with Copy */}
+            <div className="mt-3">
+              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                Your Backend Public Webhook URL
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={webhookEndpoint}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 font-mono text-[11px] select-all focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(webhookEndpoint, "webhook")}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors shrink-0"
+                >
+                  {copiedWebhook ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-400">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy URL</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Endpoint Reachability & HTTPS Validation */}
+            <div className="mt-4 p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/80 space-y-2.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-300 font-medium">Endpoint Status:</span>
+                <span
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase border ${
+                    webhookResult?.is_reachable
+                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                      : "bg-slate-800 text-slate-300 border-slate-700"
+                  }`}
+                >
+                  {webhookResult ? webhookResult.endpoint_status : (data?.webhook_url_status || "Valid HTTPS URL")}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-300 font-medium">Developer Console Status:</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  {data?.console_config_status || "Console Configuration Required"}
+                </span>
+              </div>
+
+              {webhookResult && (
+                <p className="text-[11px] font-mono text-slate-400 pt-1 border-t border-slate-800">
+                  {webhookResult.diagnosis}
+                </p>
+              )}
+            </div>
+
+            {/* Developer Console Instructions */}
+            <div className="mt-4 p-3.5 rounded-xl bg-indigo-950/20 border border-indigo-900/30 space-y-1.5 text-xs text-indigo-300">
+              <span className="font-semibold text-indigo-200 flex items-center gap-1.5">
+                <ExternalLink className="w-3.5 h-3.5 text-indigo-400" />
+                Upstox Developer Console Registration Steps:
+              </span>
+              <ol className="list-decimal list-inside space-y-1 text-[11px] text-slate-300/90 leading-relaxed pl-1">
+                <li>Log in at <a href="https://developer.upstox.com" target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">developer.upstox.com</a> and click your App.</li>
+                <li>Scroll to <strong>Notifier Webhook Endpoint</strong> (distinct from OAuth Callback).</li>
+                <li>Paste the copied HTTPS Webhook URL above.</li>
+                <li>Click <strong>Save Changes</strong> in Upstox Developer Console.</li>
+                <li>Click <strong>Request New Token</strong> to receive daily tokens automatically.</li>
+              </ol>
             </div>
           </div>
 
-          <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80">
-            <div className="flex items-center gap-1.5 text-cyan-400 font-semibold mb-1">
-              <span className="w-5 h-5 rounded-full bg-cyan-500/20 text-center leading-5 text-[10px]">2</span>
-              <span>Code Callback Handshake</span>
-            </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Upstox sends a single-use authorization code to <code>/api/v1/auth/callback</code>.
-            </p>
-            <div className="mt-2 text-[10px] font-mono text-slate-500 truncate">
-              ?code=xxxxxx&state=yyyyyy
-            </div>
-          </div>
-
-          <div className="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80">
-            <div className="flex items-center gap-1.5 text-amber-400 font-semibold mb-1">
-              <span className="w-5 h-5 rounded-full bg-amber-500/20 text-center leading-5 text-[10px]">3</span>
-              <span>Secure Token Exchange</span>
-            </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              FastAPI backend exchanges the code with Upstox, validates profile identity, and activates OMS streaming.
-            </p>
-            <div className="mt-2 text-[10px] font-mono text-slate-500 truncate">
-              POST /v2/login/authorization/token
-            </div>
+          <div className="mt-5 pt-4 border-t border-slate-800 flex items-center justify-between">
+            <span className="text-[11px] text-slate-400">
+              Reachability != Console Registration
+            </span>
+            <button
+              onClick={handleValidateWebhook}
+              disabled={isValidatingWebhook}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition-all shadow-md shadow-indigo-950 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isValidatingWebhook ? "animate-spin" : ""}`} />
+              <span>Validate Webhook Endpoint</span>
+            </button>
           </div>
         </div>
       </div>
     </div>
   );
 }
+

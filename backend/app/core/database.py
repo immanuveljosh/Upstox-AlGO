@@ -9,7 +9,7 @@ engine = create_async_engine(
     echo=False,
     future=True,
     poolclass=NullPool if "sqlite" in settings.DATABASE_URL else None,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {},
+    connect_args={"check_same_thread": False, "timeout": 30} if "sqlite" in settings.DATABASE_URL else {},
 )
 
 # Async session factory

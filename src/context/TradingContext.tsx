@@ -308,6 +308,31 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     try {
       await refreshStrategyStatus();
 
+      // 0. Sync broker connection & daily token lifecycle status
+      const tokenStatusRes = await fetch("http://localhost:8000/api/v1/auth/token-request/status");
+      if (tokenStatusRes.ok) {
+        const tsJson = await tokenStatusRes.json();
+        const td = tsJson.data;
+        if (td) {
+          if (td.is_connected) {
+            setConnectionStatus("CONNECTED");
+            if (td.last_verified) setLastVerified(td.last_verified);
+            if (td.user_id || td.user_name) {
+              setCredentials((prev) => ({
+                ...prev,
+                ucc: td.user_id || prev.ucc,
+                accountName: td.user_name || prev.accountName,
+              }));
+            }
+          } else {
+            const rawSt = String(td.connection_status || "").toUpperCase();
+            if (rawSt === "TOKEN_EXPIRED") setConnectionStatus("TOKEN_EXPIRED");
+            else if (rawSt === "AUTH_FAILED") setConnectionStatus("AUTH_FAILED");
+            else setConnectionStatus("DISCONNECTED");
+          }
+        }
+      }
+
       // 1. Fetch real Nifty spot quote from Upstox
       const spotRes = await fetch("http://localhost:8000/api/v1/market/nifty-spot");
       if (spotRes.ok) {

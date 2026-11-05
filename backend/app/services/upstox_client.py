@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from urllib.parse import quote
 from typing import Optional, Dict, Any, List
@@ -21,13 +22,102 @@ class UpstoxClient:
 
     def __init__(self, base_url: str = settings.UPSTOX_BASE_URL):
         self.base_url = base_url.rstrip("/")
+        self.v3_base_url = getattr(settings, "UPSTOX_V3_BASE_URL", "https://api.upstox.com/v3").rstrip("/")
         self.timeout = httpx.Timeout(12.0, connect=5.0)
+        self.active_access_token: Optional[str] = None
+
+    def reinitialize_session(self, access_token: Optional[str]) -> None:
+        """Reinitialize active client token state after webhook approval or token refresh."""
+        self.active_access_token = access_token.strip() if access_token else None
 
     def _headers(self, access_token: Optional[str] = None) -> Dict[str, str]:
-        headers = {"Accept": "application/json"}
-        if access_token:
-            headers["Authorization"] = f"Bearer {access_token}"
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        }
+        token = access_token or self.active_access_token
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return headers
+
+    async def request_access_token_v3(
+        self,
+        client_id: str,
+        client_secret: str,
+        max_retries: int = 2,
+    ) -> Dict[str, Any]:
+        """
+        Official Upstox Semi-Automated Access Token Request API:
+        POST https://api.upstox.com/v3/login/auth/token/request/{client_id}
+        Body: {"client_secret": "..."}
+        Triggers approval notification in user's Upstox mobile app / WhatsApp.
+        """
+        if not client_id or not client_id.strip():
+            raise UpstoxAuthException("Client ID (API Key) is required.", status_code=400, error_code="MISSING_CLIENT_ID")
+        if not client_secret or not client_secret.strip():
+            raise UpstoxAuthException("Client Secret (API Secret) is required.", status_code=400, error_code="MISSING_CLIENT_SECRET")
+
+        safe_client_id = quote(client_id.strip(), safe="")
+        url = f"{self.v3_base_url}/login/auth/token/request/{safe_client_id}"
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        payload = {"client_secret": client_secret.strip()}
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(max_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    resp = await client.post(url, headers=headers, json=payload)
+
+                if resp.status_code in (200, 201, 202):
+                    return resp.json()
+
+                # Do not retry 4xx client/auth errors to avoid spamming Upstox
+                if 400 <= resp.status_code < 500:
+                    err_msg = "Access token request rejected by Upstox"
+                    err_code = f"HTTP_{resp.status_code}"
+                    try:
+                        err_json = resp.json()
+                        errors = err_json.get("errors", [])
+                        if errors and isinstance(errors, list):
+                            first = errors[0]
+                            err_msg = first.get("message") or err_msg
+                            err_code = first.get("errorCode") or first.get("error_code") or err_code
+                        elif err_json.get("message"):
+                            err_msg = err_json["message"]
+                    except Exception:
+                        pass
+                    raise UpstoxAuthException(
+                        f"{err_msg} (code: {err_code})",
+                        status_code=resp.status_code,
+                        error_code=err_code,
+                    )
+
+                # Retryable 5xx server error
+                last_exc = UpstoxAuthException(
+                    f"Upstox server error HTTP {resp.status_code}",
+                    status_code=resp.status_code,
+                    error_code=f"HTTP_{resp.status_code}",
+                )
+            except UpstoxAuthException as auth_exc:
+                if 400 <= auth_exc.status_code < 500:
+                    raise
+                last_exc = auth_exc
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as net_exc:
+                last_exc = net_exc
+
+            if attempt < max_retries:
+                await asyncio.sleep(1.0 * (attempt + 1))
+
+        if isinstance(last_exc, UpstoxAuthException):
+            raise last_exc
+        raise UpstoxAuthException(
+            f"Temporary network failure requesting Upstox token: {str(last_exc)}",
+            status_code=503,
+            error_code="NETWORK_RETRY_EXHAUSTED",
+        )
 
     async def exchange_token(
         self,

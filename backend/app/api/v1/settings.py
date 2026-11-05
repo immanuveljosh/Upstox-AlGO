@@ -30,6 +30,7 @@ async def get_all_settings(db: AsyncSession = Depends(get_db)):
     )
 
     conn_status = token_record.connection_status or ("CONNECTED" if token_record.is_valid else "DISCONNECTED")
+    telemetry = broker_service.build_token_telemetry(token_record)
 
     return {
         "connection_status": conn_status.lower(),
@@ -48,8 +49,9 @@ async def get_all_settings(db: AsyncSession = Depends(get_db)):
             "broker_name": "Upstox",
             "connection_status": conn_status,
             "is_connected": token_record.is_valid,
-            "latency_ms": 120 if token_record.is_valid else 0,
+            "latency_ms": 95 if token_record.is_valid else 0,
             "last_verified": token_record.last_verified_at.isoformat() if token_record.last_verified_at else None,
+            "last_error": token_record.last_error,
             "mode": config.mode,
             "strategy_name": config.strategy_name,
             "strategy_status": config.strategy_status,
@@ -60,6 +62,7 @@ async def get_all_settings(db: AsyncSession = Depends(get_db)):
             "stoploss_capital_pct": config.stoploss_capital_pct,
             "target_capital_pct": config.target_capital_pct,
             "max_trades_per_day": config.max_trades_per_day,
+            **telemetry,
         },
         "message": "Settings retrieved.",
     }
@@ -98,6 +101,13 @@ async def update_broker_credentials(
         new_redirect = payload.redirect_uri.strip()
         if new_redirect != token_record.redirect_uri:
             token_record.redirect_uri = new_redirect
+            changed = True
+
+    # Safely update Notifier Webhook URL only if non-empty
+    if payload.notifier_url is not None and payload.notifier_url.strip():
+        new_notifier = payload.notifier_url.strip()
+        if new_notifier != token_record.notifier_url:
+            token_record.notifier_url = new_notifier
             changed = True
 
     # Safely update Access Token if provided

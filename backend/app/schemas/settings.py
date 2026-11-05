@@ -6,6 +6,7 @@ class BrokerCredentialsUpdate(BaseModel):
     api_key: Optional[str] = Field(None, min_length=1)
     api_secret: Optional[str] = Field(None, min_length=1)
     redirect_uri: Optional[str] = Field(None, min_length=1)
+    notifier_url: Optional[str] = Field(None, min_length=1)
     access_token: Optional[str] = None
 
 

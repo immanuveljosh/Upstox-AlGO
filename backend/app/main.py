@@ -37,6 +37,12 @@ async def init_database():
     """Create all tables and ensure Nifty Directional default configuration."""
     from sqlalchemy import text
     async with engine.begin() as conn:
+        if "sqlite" in settings.DATABASE_URL:
+            try:
+                await conn.execute(text("PRAGMA journal_mode=WAL"))
+                await conn.execute(text("PRAGMA busy_timeout=30000"))
+            except Exception:
+                pass
         await conn.run_sync(Base.metadata.create_all)
         for col_name, col_type in [
             ("expected_price", "FLOAT"),
@@ -52,11 +58,40 @@ async def init_database():
         for col_name, col_type in [
             ("connection_status", "VARCHAR(50)"),
             ("last_error", "VARCHAR(500)"),
+            ("issued_at", "DATETIME"),
+            ("expires_at", "DATETIME"),
+            ("token_request_status", "VARCHAR(50) DEFAULT 'IDLE'"),
+            ("last_token_request_at", "DATETIME"),
+            ("last_token_approved_at", "DATETIME"),
+            ("last_token_request_date", "VARCHAR(20)"),
+            ("authorization_expiry", "DATETIME"),
+            ("notifier_url", "VARCHAR(500)"),
+            ("auto_request_enabled", "BOOLEAN DEFAULT 1"),
+            ("scheduled_request_time", "VARCHAR(10) DEFAULT '08:45'"),
+            ("last_webhook_hash", "VARCHAR(128)"),
         ]:
             try:
                 await conn.execute(text(f"ALTER TABLE broker_tokens ADD COLUMN {col_name} {col_type}"))
             except Exception:
                 pass
+
+        # Migrate any existing plaintext access_token or api_secret to encrypted format at rest
+        from backend.app.core.security import encrypt_token, is_encrypted_at_rest
+        try:
+            raw_rows = (await conn.execute(text("SELECT id, access_token, api_secret FROM broker_tokens"))).fetchall()
+            for r_id, raw_tok, raw_sec in raw_rows:
+                if raw_tok and not is_encrypted_at_rest(raw_tok):
+                    await conn.execute(
+                        text("UPDATE broker_tokens SET access_token = :enc WHERE id = :id"),
+                        {"enc": encrypt_token(raw_tok), "id": r_id},
+                    )
+                if raw_sec and not is_encrypted_at_rest(raw_sec):
+                    await conn.execute(
+                        text("UPDATE broker_tokens SET api_secret = :enc WHERE id = :id"),
+                        {"enc": encrypt_token(raw_sec), "id": r_id},
+                    )
+        except Exception:
+            pass
 
     async with AsyncSessionLocal() as session:
         from sqlalchemy import select, delete
@@ -118,12 +153,14 @@ async def init_database():
 
 
 async def background_strategy_worker():
-    """Background engine monitoring Nifty Directional strategy every 4 seconds."""
+    """Background engine monitoring Nifty Directional strategy and daily Upstox token scheduler."""
     from backend.app.services.strategy_service import strategy_service
+    from backend.app.services.broker_service import broker_service
     while True:
         try:
             await asyncio.sleep(4.0)
             async with AsyncSessionLocal() as session:
+                await broker_service.run_daily_scheduler_tick(session)
                 await strategy_service.run_monitoring_tick(session)
         except asyncio.CancelledError:
             break
@@ -197,6 +234,19 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "status": "validation_error",
             "message": "Invalid input payload",
             "details": exc.errors(),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled error on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "connection_status": "connection_lost",
+            "data": None,
+            "message": f"Internal server error: {str(exc)}",
         },
     )
 

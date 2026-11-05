@@ -25,6 +25,7 @@ import {
   Radio,
   Eye,
   EyeOff,
+  Smartphone,
 } from "lucide-react";
 import { TokenManagementTelemetry } from "@/types/trading";
 
@@ -89,6 +90,10 @@ export function BrokerSettings() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isRequestingToken, setIsRequestingToken] = useState(false);
+  const [appApprovalStatus, setAppApprovalStatus] = useState<
+    "idle" | "sending" | "sent" | "waiting" | "token_received" | "validated" | "failed"
+  >("idle");
+  const [appApprovalMessage, setAppApprovalMessage] = useState<string>("");
   const [isValidatingWebhook, setIsValidatingWebhook] = useState(false);
   const [isSavingScheduler, setIsSavingScheduler] = useState(false);
   const [isCancelingRequest, setIsCancelingRequest] = useState(false);
@@ -119,6 +124,13 @@ export function BrokerSettings() {
         setRedirectUri(d.redirect_uri || "http://localhost:8000/api/v1/auth/callback");
         setAutoEnabled(d.auto_request_enabled ?? true);
         setScheduledTime(d.scheduled_request_time || "08:45");
+
+        if (d.is_connected) {
+          if (appApprovalStatus === "waiting" || appApprovalStatus === "sending") {
+            setAppApprovalStatus("validated");
+            setAppApprovalMessage("Token validation successful. Connected to Upstox Live OMS.");
+          }
+        }
       }
     } catch {
       if (!silent) {
@@ -131,16 +143,17 @@ export function BrokerSettings() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, appApprovalStatus]);
 
   useEffect(() => {
     fetchSettings();
-    // Background polling every 12 seconds to keep live telemetry fresh
+    const isPending = data?.token_request_status === "REQUESTED_PENDING" || appApprovalStatus === "waiting";
+    const pollInterval = isPending ? 2500 : 12000;
     const timer = setInterval(() => {
       fetchSettings(true);
-    }, 12000);
+    }, pollInterval);
     return () => clearInterval(timer);
-  }, [fetchSettings]);
+  }, [fetchSettings, data?.token_request_status, appApprovalStatus]);
 
   // Handle Verify Connection
   const handleVerify = async () => {
@@ -338,9 +351,11 @@ export function BrokerSettings() {
     }
   };
 
-  // Handle Semi-Automated Token Request
+  // Handle Upstox App Approval Request (Semi-Automated Token Request)
   const handleRequestToken = async () => {
     setIsRequestingToken(true);
+    setAppApprovalStatus("sending");
+    setAppApprovalMessage("Sending request to Upstox API...");
     try {
       const res = await fetch("http://localhost:8000/api/v1/auth/token-request?force=true", {
         method: "POST",
@@ -348,20 +363,27 @@ export function BrokerSettings() {
       const json = await res.json();
 
       if (res.ok && json.status === "success") {
+        setAppApprovalStatus("waiting");
+        setAppApprovalMessage("Please open Upstox mobile app and approve the pending access token request.");
         addToast({
           type: "success",
-          title: "Token Request Initiated",
-          message: "Request sent to Upstox. Please approve the prompt in your Upstox Mobile App or WhatsApp.",
+          title: "Approval Request Sent",
+          message: "Please open Upstox mobile app and approve the pending access token request.",
         });
       } else {
+        setAppApprovalStatus("failed");
+        const errMsg = json.message || "Request failed.";
+        setAppApprovalMessage(errMsg);
         addToast({
           type: "warning",
-          title: "Token Request Rejected",
-          message: json.message || "Failed to initiate token request.",
+          title: "Request Failed",
+          message: errMsg,
         });
       }
       await fetchSettings(true);
     } catch {
+      setAppApprovalStatus("failed");
+      setAppApprovalMessage("Failed to connect to backend server.");
       addToast({
         type: "error",
         title: "Request Error",
@@ -375,6 +397,8 @@ export function BrokerSettings() {
   // Handle Cancel Token Request
   const handleCancelRequest = async () => {
     setIsCancelingRequest(true);
+    setAppApprovalStatus("idle");
+    setAppApprovalMessage("");
     try {
       const res = await fetch("http://localhost:8000/api/v1/auth/token-request/cancel", {
         method: "POST",
@@ -850,16 +874,30 @@ export function BrokerSettings() {
                 <span className="text-xs font-semibold text-slate-300">Request Lifecycle Status</span>
                 <span
                   className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase border ${
-                    reqStatusLabel === "Token Verified"
+                    isConnected && data?.last_token_approved_ist
                       ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                      : reqStatusLabel === "Request Pending Approval"
+                      : isRequestingToken || appApprovalStatus === "sending"
+                      ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30 animate-pulse"
+                      : appApprovalStatus === "waiting" || reqStatus === "REQUESTED_PENDING"
                       ? "bg-amber-500/15 text-amber-300 border-amber-500/30 animate-pulse"
-                      : reqStatusLabel === "Authentication Failed"
+                      : appApprovalStatus === "failed" || reqStatus === "REJECTED" || reqStatus === "FAILED" || connStatus === "AUTH_FAILED"
                       ? "bg-rose-500/15 text-rose-400 border-rose-500/30"
                       : "bg-slate-800 text-slate-300 border-slate-700"
                   }`}
                 >
-                  {reqStatusLabel}
+                  {isRequestingToken || appApprovalStatus === "sending"
+                    ? "Sending request..."
+                    : appApprovalStatus === "sent"
+                    ? "Approval request sent"
+                    : appApprovalStatus === "waiting" || reqStatus === "REQUESTED_PENDING"
+                    ? "Waiting for Upstox App approval"
+                    : isConnected && data?.last_token_approved_ist
+                    ? "Token validation successful"
+                    : data?.last_token_approved_ist && !isConnected
+                    ? "Token received"
+                    : appApprovalStatus === "failed" || reqStatus === "REJECTED" || reqStatus === "FAILED"
+                    ? "Request failed"
+                    : reqStatusLabel}
                 </span>
               </div>
 
@@ -883,19 +921,38 @@ export function BrokerSettings() {
                 </div>
               </div>
 
-              {reqStatus === "REQUESTED_PENDING" && (
-                <div className="mt-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Radio className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                    <span>Awaiting approval in Upstox App / WhatsApp...</span>
+              {/* Action Required Callout when Pending Approval */}
+              {(appApprovalStatus === "waiting" || reqStatus === "REQUESTED_PENDING") && (
+                <div className="mt-3 p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-xs text-amber-200 space-y-1.5 shadow-lg shadow-amber-950/40">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-amber-300 font-bold">
+                      <Smartphone className="w-4 h-4 text-amber-400 animate-pulse" />
+                      <span>Action Required on Mobile Device</span>
+                    </div>
+                    <button
+                      onClick={handleCancelRequest}
+                      disabled={isCancelingRequest}
+                      className="text-[11px] text-amber-300/80 hover:text-white underline font-medium"
+                    >
+                      Cancel Request
+                    </button>
                   </div>
-                  <button
-                    onClick={handleCancelRequest}
-                    disabled={isCancelingRequest}
-                    className="text-xs text-amber-400 hover:text-amber-200 underline font-medium"
-                  >
-                    Cancel
-                  </button>
+                  <p className="font-semibold text-white leading-relaxed">
+                    Please open Upstox mobile app and approve the pending access token request.
+                  </p>
+                  <p className="text-[11px] text-amber-200/80 leading-normal">
+                    Upstox dispatched an approval notification. Once you tap Approve in the Upstox app, the token will be received via webhook and verified automatically.
+                  </p>
+                </div>
+              )}
+
+              {/* Rejection / Failure Notice */}
+              {(appApprovalStatus === "failed" || (reqStatus === "NOTIFIER_URL_REQUIRED" && data?.last_error)) && (
+                <div className="mt-2 p-2.5 rounded-lg bg-rose-950/30 border border-rose-900/50 text-[11px] text-rose-300 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span className="font-mono leading-relaxed">
+                    {appApprovalMessage || data?.last_error || "Request failed. Check credentials and registered webhook URL."}
+                  </span>
                 </div>
               )}
             </div>
@@ -945,10 +1002,19 @@ export function BrokerSettings() {
             <button
               onClick={handleRequestToken}
               disabled={isRequestingToken}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs transition-all shadow-md shadow-cyan-950 cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs transition-all shadow-md shadow-cyan-950 cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRequestingToken ? "animate-spin" : ""}`} />
-              <span>Request New Token</span>
+              {isRequestingToken ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Sending request...</span>
+                </>
+              ) : (
+                <>
+                  <Smartphone className="w-3.5 h-3.5 fill-current" />
+                  <span>Request Upstox App Approval</span>
+                </>
+              )}
             </button>
           </div>
         </div>

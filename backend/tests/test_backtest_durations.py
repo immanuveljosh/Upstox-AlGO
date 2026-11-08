@@ -67,13 +67,13 @@ def test_charges_and_capital_net_pnl_math():
     assert charges["gst"] > 0
     assert charges["total"] > 40.0
 
-    # Target net P&L = +₹10,000 (5% of ₹2,00,000)
-    tgt_px = price_for_net_pnl(300.0, 65, "2026-10-15", 10000.0)
-    assert abs(net_pnl_at(300.0, tgt_px, 65, "2026-10-15") - 10000.0) < 0.05
+    # Target net P&L = +₹12,000 (6% of ₹2,00,000)
+    tgt_px = price_for_net_pnl(300.0, 65, "2026-10-15", 12000.0)
+    assert abs(net_pnl_at(300.0, tgt_px, 65, "2026-10-15") - 12000.0) < 0.05
 
-    # Stop loss net P&L = -₹8,000 (-4% of ₹2,00,000)
-    sl_px = price_for_net_pnl(300.0, 65, "2026-10-15", -8000.0)
-    assert abs(net_pnl_at(300.0, sl_px, 65, "2026-10-15") - (-8000.0)) < 0.05
+    # Stop loss net P&L = -₹10,000 (-5% of ₹2,00,000)
+    sl_px = price_for_net_pnl(300.0, 65, "2026-10-15", -10000.0)
+    assert abs(net_pnl_at(300.0, sl_px, 65, "2026-10-15") - (-10000.0)) < 0.05
 
 
 @pytest.mark.asyncio
@@ -108,11 +108,11 @@ async def test_backtest_with_historical_option_candles_sl_target_and_no_trade():
         "2026-10-05": [
             ["2026-10-05T09:15:00+05:30", 300.0, 325.0, 295.0, 320.0, 15000],
             ["2026-10-05T09:16:00+05:30", 320.0, 390.0, 318.0, 385.0, 18000],
-            ["2026-10-05T10:32:00+05:30", 385.0, 470.0, 380.0, 462.0, 25000],  # Crosses +₹10,000 net target
+            ["2026-10-05T10:32:00+05:30", 385.0, 495.0, 380.0, 490.0, 25000],  # Crosses +₹12,000 net target (6%)
         ],
         "2026-10-07": [
             ["2026-10-07T09:15:00+05:30", 310.0, 315.0, 280.0, 285.0, 14000],
-            ["2026-10-07T11:05:00+05:30", 285.0, 286.0, 170.0, 175.0, 22000],  # Crosses -₹8,000 net SL
+            ["2026-10-07T11:05:00+05:30", 285.0, 286.0, 150.0, 155.0, 22000],  # Crosses -₹10,000 net SL (5%)
         ],
     }
 
@@ -125,6 +125,11 @@ async def test_backtest_with_historical_option_candles_sl_target_and_no_trade():
             capital=200000.0,
             lots=1,
             nifty_daily_candles=daily_candles,
+            gift_nifty_by_date={
+                "2026-10-05": 95.0,
+                "2026-10-06": 45.0,
+                "2026-10-07": -90.0,
+            },
             contracts_by_date={
                 "2026-10-05": chain_2026_10_08,
                 "2026-10-07": chain_2026_10_08,

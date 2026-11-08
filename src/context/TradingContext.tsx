@@ -12,6 +12,7 @@ import {
   AccountStats,
   BrokerCredentials,
   InstrumentMetadata,
+  BacktestResult,
 } from "@/types/trading";
 import {
   defaultStrategy,
@@ -71,6 +72,9 @@ interface TradingContextType {
   toasts: ToastMessage[];
   addToast: (toast: Omit<ToastMessage, "id">) => void;
   removeToast: (id: string) => void;
+  backtestResult: BacktestResult | null;
+  setBacktestResult: React.Dispatch<React.SetStateAction<BacktestResult | null>>;
+  brokerError: string | null;
 }
 
 const TradingContext = createContext<TradingContextType | undefined>(undefined);
@@ -80,6 +84,8 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
   const [isLiveConfirmOpen, setIsLiveConfirmOpen] = useState(false);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("DISCONNECTED");
+  const [brokerError, setBrokerError] = useState<string | null>(null);
+  const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [niftyPrice, setNiftyPrice] = useState<number>(0);
   const [niftyChange, setNiftyChange] = useState<number>(0);
   const [niftyChangePct, setNiftyChangePct] = useState<number>(0);
@@ -137,6 +143,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
           const d = json.data;
           if (d && d.is_connected) {
             setConnectionStatus("CONNECTED");
+            setBrokerError(null);
             setLatencyMs(d.latency_ms || 120);
             setLastVerified(d.last_verified || null);
             setCredentials((prev) => ({
@@ -154,10 +161,12 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
             } else {
               setConnectionStatus("DISCONNECTED");
             }
+            setBrokerError(d.last_error || json.message || null);
             setLatencyMs(0);
             setLastVerified(d.last_verified || null);
           } else {
             setConnectionStatus("DISCONNECTED");
+            setBrokerError(json?.message || null);
             setLatencyMs(0);
           }
         }
@@ -406,6 +415,15 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
             const isStale = typeof rejectReason === "string" && rejectReason.includes("STALE");
             const qStatus = isUnverified ? "UNVERIFIED" : isStale ? "STALE" : "FRESH";
 
+            const bStopStatus: string =
+              typeof matchingDbOrder?.broker_stop_status === "string"
+                ? matchingDbOrder.broker_stop_status
+                : typeof matchingDbOrder?.brokerStopStatus === "string"
+                ? matchingDbOrder.brokerStopStatus
+                : matchingDbOrder?.broker_stop_order_id
+                ? "ACTIVE"
+                : "MISSING";
+
             setActivePosition({
               symbol: ts,
               strike: Number(firstPos.strike_price || 0),
@@ -417,7 +435,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
               ltp: ltpVal,
               pnl: pnlVal,
               pnlPercent: buyPr > 0 ? ((ltpVal - buyPr) / buyPr) * 100 : 0,
-              stoploss: 0,
+              stoploss: Number(matchingDbOrder?.broker_stop_trigger_price || 0),
               target: 0,
               trailingSl: 0,
               entryTime: "Live",
@@ -426,6 +444,10 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
               isUnverified: isUnverified,
               quoteStatus: qStatus,
               quoteRejectReason: typeof rejectReason === "string" ? rejectReason : undefined,
+              brokerStopStatus: bStopStatus,
+              brokerStopOrderId: matchingDbOrder?.broker_stop_order_id ? String(matchingDbOrder.broker_stop_order_id) : undefined,
+              brokerStopTriggerPrice: matchingDbOrder?.broker_stop_trigger_price ? Number(matchingDbOrder.broker_stop_trigger_price) : undefined,
+              brokerStopLimitPrice: matchingDbOrder?.broker_stop_limit_price ? Number(matchingDbOrder.broker_stop_limit_price) : undefined,
             });
           } else {
             setActivePosition(null);
@@ -941,7 +963,7 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
     addToast({
       type: "info",
       title: "Capital Updated",
-      message: `Total Strategy Capital set to ₹${formatIndianNumber(totalCapital)} (SL 4% = ₹${formatIndianNumber(slAmt)}, Target 5% = ₹${formatIndianNumber(tgtAmt)})`,
+      message: `Total Strategy Capital set to ₹${formatIndianNumber(totalCapital)} (SL ${strategy.stoplossPercent}% = ₹${formatIndianNumber(slAmt)}, Target ${strategy.targetPercent}% = ₹${formatIndianNumber(tgtAmt)})`,
     });
   };
 
@@ -1074,6 +1096,9 @@ export function TradingProvider({ children }: { children: React.ReactNode }) {
         toasts,
         addToast,
         removeToast,
+        backtestResult,
+        setBacktestResult,
+        brokerError,
       }}
     >
       {children}

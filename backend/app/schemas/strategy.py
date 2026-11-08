@@ -11,7 +11,7 @@ class StrategyConfigData(BaseModel):
     description: str = (
         "Nifty Directional: Buy NIFTY ITM 3 Call (CE) if Gift Nifty 1-Day change >= +80 pts; "
         "Buy NIFTY ITM 3 Put (PE) if <= -80 pts; No Trade between -80 and +80 pts. "
-        "Entry window 09:15:00–09:17:00 IST, max 1 trade/day, Stop Loss 4% of capital, Target 5% of capital."
+        "Entry window 09:15:00–09:17:00 IST, max 1 trade/day, Stop Loss 5% of capital, Target 6% of capital."
     )
     status: Literal["RUNNING", "STOPPED", "PAUSED"]
     mode: Literal["BACKTEST", "LIVE"]
@@ -24,10 +24,10 @@ class StrategyConfigData(BaseModel):
     max_trades_per_day: int = 1
     trades_executed_today: int = 0
     total_capital: float = 200000.0
-    stoploss_capital_pct: float = 4.0
-    stoploss_amount: float = 8000.0
-    target_capital_pct: float = 5.0
-    target_amount: float = 10000.0
+    stoploss_capital_pct: float = 5.0
+    stoploss_amount: float = 10000.0
+    target_capital_pct: float = 6.0
+    target_amount: float = 12000.0
     lot_size: int = 65
     lots: int = 1
     total_qty: int = 65
@@ -39,8 +39,8 @@ class StrategyConfigData(BaseModel):
 
 class StrategySettingsUpdate(BaseModel):
     lots: Optional[int] = Field(None, ge=1, le=50, description="Lot size multiplier")
-    stoploss_capital_pct: Optional[float] = Field(None, ge=0.5, le=50.0, description="Stop loss % of capital (default 4%)")
-    target_capital_pct: Optional[float] = Field(None, ge=0.5, le=50.0, description="Target % of capital (default 5%)")
+    stoploss_capital_pct: Optional[float] = Field(None, ge=0.5, le=50.0, description="Stop loss % of capital (default 5%)")
+    target_capital_pct: Optional[float] = Field(None, ge=0.5, le=50.0, description="Target % of capital (default 6%)")
     total_capital: Optional[float] = Field(None, ge=10000.0, description="Total strategy capital")
 
 
@@ -94,6 +94,7 @@ class BacktestRequest(BaseModel):
     to_date: Optional[str] = Field(None, description="End date YYYY-MM-DD for custom date range")
     capital: Optional[float] = Field(None, description="Initial strategy capital")
     lots: Optional[int] = Field(None, description="Number of lots")
+    allow_nifty_proxy: Optional[bool] = Field(False, description="Allow NIFTY 50 cash index gap proxy when Gift Nifty data is missing (default False)")
 
 
 class InstrumentMetadata(BaseModel):

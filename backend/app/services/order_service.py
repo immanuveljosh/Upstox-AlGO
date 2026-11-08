@@ -1,17 +1,27 @@
 import asyncio
 import json
 import uuid
-from datetime import datetime
-from typing import List, Optional, Dict, Any
+from datetime import datetime, time
+from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, or_
 from backend.app.models.order import Order
+from backend.app.models.broker_token import BrokerToken
 from backend.app.services.upstox_client import upstox_client
 from backend.app.services.broker_service import broker_service
 from backend.app.services.strategy_service import strategy_service, format_ist_display
-from backend.app.strategy.nifty_directional import IST, capital_risk_limits, ist_now
+from backend.app.strategy.nifty_directional import (
+    IST,
+    capital_risk_limits,
+    ist_now,
+    price_for_net_pnl,
+    round_to_tick,
+    calculate_option_charges,
+)
+from backend.app.core.config import settings
 from backend.app.core.exceptions import ModeRestrictionException, RiskLimitBreachedException
 from backend.app.core.logging import logger, log_critical_action
+
 
 
 class OrderService:
@@ -34,6 +44,7 @@ class OrderService:
         order_type: str = "MARKET",
         price: float = 0.0,
         trigger_price: float = 0.0,
+        current_time: Optional[time] = None,
     ) -> Dict[str, Any]:
         async with self._get_lock():
             config = await broker_service.get_or_create_config(db)
@@ -71,7 +82,15 @@ class OrderService:
                     f"An open position already exists ({active_order.symbol}, order {active_order.client_order_id}). Only 1 active position allowed."
                 )
 
-            # 5. Verify live Upstox connection
+            # 5. Trading Window Enforcement: Strictly 09:15:00 to 09:17:00 AM IST
+            now_time = current_time if current_time is not None else ist_now().time()
+            in_window, win_msg = strategy_service.is_within_trading_window(now_time)
+            if not in_window:
+                raise RiskLimitBreachedException(
+                    f"Order placement outside trading window (09:15:00 – 09:17:00 IST) is blocked: {win_msg}"
+                )
+
+            # 6. Verify live Upstox connection
             is_connected, msg, _, _ = await broker_service.verify_connection(db)
             if not is_connected:
                 return {
@@ -208,6 +227,42 @@ class OrderService:
             await db.commit()
             await db.refresh(db_order)
 
+            # Check fill status and place broker-side stop-loss
+            if status == "PLACED":
+                if config.mode == "LIVE" and upstox_order_id:
+                    fill_confirmed = False
+                    try:
+                        hist = await upstox_client.get_order_history(token_record.access_token, upstox_order_id)
+                        latest = hist[0] if hist else {}
+                        if str(latest.get("status") or "").lower() == "complete":
+                            fill_confirmed = True
+                            fill_qty = int(latest.get("filled_quantity") or qty)
+                            fill_px = float(latest.get("average_price") or db_order.price)
+                            db_order.qty = fill_qty
+                            db_order.price = fill_px
+                            await db.commit()
+                    except Exception as e:
+                        logger.debug(f"Initial fill check note: {e}")
+
+                    if fill_confirmed:
+                        await self.place_broker_stop_loss(
+                            db=db,
+                            order=db_order,
+                            fill_price=db_order.price,
+                            filled_qty=db_order.qty,
+                        )
+                    else:
+                        db_order.broker_stop_status = "PENDING_ENTRY_FILL"
+                        await db.commit()
+                elif config.mode != "LIVE":
+                    # Paper / Backtest mode
+                    await self.place_broker_stop_loss(
+                        db=db,
+                        order=db_order,
+                        fill_price=db_order.price or 100.0,
+                        filled_qty=db_order.qty,
+                    )
+
             return {
                 "connection_status": "connected",
                 "data": {
@@ -229,9 +284,287 @@ class OrderService:
                     "target_capital_5pct": f"₹{target_amount:,.2f}",
                     "reject_reason": db_order.reject_reason,
                     "time": format_ist_display(ist_now()) or db_order.placed_at.strftime("%H:%M:%S"),
+                    "broker_stop_order_id": db_order.broker_stop_order_id,
+                    "broker_stop_status": db_order.broker_stop_status,
+                    "broker_stop_trigger_price": db_order.broker_stop_trigger_price,
+                    "broker_stop_limit_price": db_order.broker_stop_limit_price,
                 },
                 "message": f"Order {status.lower()} for {symbol} (ITM 3).",
             }
+
+    async def place_broker_stop_loss(
+        self,
+        db: AsyncSession,
+        order: Order,
+        fill_price: float,
+        filled_qty: int,
+    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        """
+        Places a broker-side Stop-Loss Limit (SL) order on Upstox OMS for the exact filled quantity.
+        Calculates the charge-adjusted stop price for 5% capital loss.
+        Sets trigger_price to calculated SL price and limit price with a safe buffer
+        (BROKER_STOP_LIMIT_BUFFER_PCT, default 5%) to guarantee execution in fast markets.
+        Retries once if initial placement fails; on persistent failure, alerts loudly and
+        falls back to software monitoring.
+        """
+        config = await broker_service.get_or_create_config(db)
+        today_date = ist_now().strftime("%Y-%m-%d")
+        sl_capital_amt, _ = capital_risk_limits(
+            config.total_capital, config.stoploss_capital_pct, config.target_capital_pct
+        )
+        raw_sl_px = price_for_net_pnl(fill_price, filled_qty, today_date, -sl_capital_amt)
+        trigger_px = round_to_tick(raw_sl_px)
+        buffer_pct = getattr(settings, "BROKER_STOP_LIMIT_BUFFER_PCT", 0.05)
+        limit_px = round_to_tick(max(0.05, trigger_px * (1.0 - buffer_pct)))
+
+        if order.mode != "LIVE":
+            # Paper / Backtest mode simulation
+            order.broker_stop_order_id = f"SIM-SL-{uuid.uuid4().hex[:8].upper()}"
+            order.broker_stop_status = "ACTIVE"
+            order.broker_stop_trigger_price = trigger_px
+            order.broker_stop_limit_price = limit_px
+            await db.commit()
+            return True, order.broker_stop_order_id, None
+
+        token_record = await broker_service.get_or_create_token_record(db)
+        if not token_record or not token_record.access_token:
+            order.broker_stop_status = "FAILED"
+            await db.commit()
+            return False, None, "No broker access token available"
+
+        stop_payload = {
+            "quantity": filled_qty,
+            "product": "I",
+            "validity": "DAY",
+            "price": limit_px,
+            "tag": "nifty_dir_sl",
+            "instrument_token": order.instrument_key,
+            "order_type": "SL",
+            "transaction_type": "SELL",
+            "disclosed_quantity": 0,
+            "trigger_price": trigger_px,
+            "is_amo": False,
+        }
+
+        stop_order_id = None
+        last_error = None
+
+        # Retry once on failure
+        for attempt in range(2):
+            try:
+                resp = await upstox_client.place_order(token_record.access_token, stop_payload)
+                if isinstance(resp, dict):
+                    stop_order_id = (resp.get("data") or {}).get("order_id")
+                else:
+                    stop_order_id = getattr(getattr(resp, "data", None), "order_id", None)
+                if stop_order_id:
+                    break
+                else:
+                    last_error = "Upstox OMS did not return order_id for SL"
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning(f"Broker SL placement attempt {attempt + 1} failed for {order.symbol}: {last_error}")
+                if attempt == 0:
+                    await asyncio.sleep(1.0)
+
+        if stop_order_id:
+            order.broker_stop_order_id = stop_order_id
+            order.broker_stop_status = "ACTIVE"
+            order.broker_stop_trigger_price = trigger_px
+            order.broker_stop_limit_price = limit_px
+            await db.commit()
+
+            log_critical_action(
+                "BROKER_STOP_PLACED",
+                {
+                    "client_order_id": order.client_order_id,
+                    "broker_stop_order_id": stop_order_id,
+                    "symbol": order.symbol,
+                    "qty": filled_qty,
+                    "trigger_price": trigger_px,
+                    "limit_price": limit_px,
+                },
+            )
+            return True, stop_order_id, None
+        else:
+            order.broker_stop_status = "FAILED"
+            alert_msg = (
+                f"CRITICAL: Broker Stop-Loss placement failed for {order.symbol} ({last_error})! "
+                f"Position is protected ONLY by local software monitoring. Re-place stop or exit manually if leaving computer."
+            )
+            config.critical_alert = alert_msg
+            await db.commit()
+
+            log_critical_action(
+                "BROKER_STOP_PLACEMENT_FAILED",
+                {
+                    "client_order_id": order.client_order_id,
+                    "symbol": order.symbol,
+                    "error": last_error,
+                },
+            )
+            await strategy_service._send_telegram_alert(f"🚨 UPSTOX ALGO CRITICAL ALERT\n{alert_msg}")
+
+            if getattr(settings, "AUTO_EXIT_ON_BROKER_STOP_FAILURE", False):
+                logger.warning(f"AUTO_EXIT_ON_BROKER_STOP_FAILURE is enabled: squaring off {order.symbol} immediately.")
+            return False, None, last_error
+
+    async def cancel_broker_stop_if_active(
+        self,
+        db: AsyncSession,
+        order: Order,
+        token_record: Optional[BrokerToken] = None,
+    ) -> Tuple[bool, str]:
+        """
+        Safely cancels the broker-side stop loss order before placing any exit order.
+        Never allows both stop-loss and manual/target exit to sell the position simultaneously.
+
+        Returns:
+            (can_proceed_with_exit: bool, reason: str)
+            - If can_proceed_with_exit is True: stop is cancelled (or none existed). Safe to send exit order.
+            - If can_proceed_with_exit is False: stop has ALREADY TRIGGERED / FILLED at broker.
+              Do NOT send another exit order (position is already closed).
+        """
+        if not order.broker_stop_order_id or order.broker_stop_status in ("CANCELLED", "TRIGGERED", "CLOSED"):
+            return True, "NO_ACTIVE_STOP"
+
+        if order.mode != "LIVE" or order.broker_stop_order_id.startswith("SIM-"):
+            order.broker_stop_status = "CANCELLED"
+            await db.commit()
+            return True, "CANCELLED_SIMULATED"
+
+        if not token_record:
+            token_record = await broker_service.get_or_create_token_record(db)
+
+        if not token_record or not token_record.access_token:
+            return True, "NO_TOKEN"
+
+        # 1. Check if stop order already executed / triggered at Upstox OMS
+        try:
+            hist = await upstox_client.get_order_history(token_record.access_token, order.broker_stop_order_id)
+            latest = hist[0] if hist else {}
+            h_status = str(latest.get("status") or "").lower()
+
+            if h_status in ("complete", "filled"):
+                # Broker stop has ALREADY triggered and executed!
+                order.broker_stop_status = "TRIGGERED"
+                order.status = "CLOSED"
+                order.exit_status = "CONFIRMED_EXIT"
+                order.exit_time = datetime.utcnow()
+                order.exit_price = float(latest.get("average_price") or order.broker_stop_trigger_price or order.price)
+                order.exit_reason = "Broker Stop Triggered"
+                today_date = ist_now().strftime("%Y-%m-%d")
+                charges = calculate_option_charges(order.price, order.exit_price, order.qty, today_date)["total"]
+                order.realized_pnl = round((order.exit_price - order.price) * order.qty - charges, 2)
+                await db.commit()
+
+                log_critical_action(
+                    "BROKER_STOP_ALREADY_TRIGGERED",
+                    {
+                        "client_order_id": order.client_order_id,
+                        "broker_stop_order_id": order.broker_stop_order_id,
+                        "exit_price": order.exit_price,
+                        "realized_pnl": order.realized_pnl,
+                    },
+                )
+                return False, "ALREADY_TRIGGERED"
+        except Exception as exc:
+            logger.warning(f"Error checking broker stop status for {order.broker_stop_order_id}: {exc}")
+
+        # 2. Stop has not executed yet -> Cancel it at Upstox OMS
+        cancel_success = False
+        try:
+            await upstox_client.cancel_order(token_record.access_token, order.broker_stop_order_id)
+            cancel_success = True
+        except Exception as exc:
+            err_str = str(exc)
+            if any(term in err_str.lower() for term in ("already cancelled", "cancelled order", "not found")):
+                cancel_success = True
+            elif any(term in err_str.lower() for term in ("already executed", "complete", "filled")):
+                # Executed just as cancel was dispatched
+                order.broker_stop_status = "TRIGGERED"
+                order.status = "CLOSED"
+                order.exit_status = "CONFIRMED_EXIT"
+                order.exit_time = datetime.utcnow()
+                order.exit_reason = "Broker Stop Triggered"
+                today_date = ist_now().strftime("%Y-%m-%d")
+                charges = calculate_option_charges(order.price, order.exit_price or order.price, order.qty, today_date)["total"]
+                order.realized_pnl = round(((order.exit_price or order.price) - order.price) * order.qty - charges, 2)
+                await db.commit()
+                return False, "ALREADY_TRIGGERED"
+            else:
+                logger.error(f"Failed to cancel broker stop order {order.broker_stop_order_id}: {err_str}")
+
+        if cancel_success:
+            order.broker_stop_status = "CANCELLED"
+            await db.commit()
+            log_critical_action(
+                "BROKER_STOP_CANCELLED",
+                {
+                    "client_order_id": order.client_order_id,
+                    "broker_stop_order_id": order.broker_stop_order_id,
+                },
+            )
+            return True, "CANCELLED"
+
+        # Verify status once more
+        try:
+            hist = await upstox_client.get_order_history(token_record.access_token, order.broker_stop_order_id)
+            latest = hist[0] if hist else {}
+            h_status = str(latest.get("status") or "").lower()
+            if h_status in ("complete", "filled"):
+                order.broker_stop_status = "TRIGGERED"
+                order.status = "CLOSED"
+                order.exit_status = "CONFIRMED_EXIT"
+                order.exit_time = datetime.utcnow()
+                order.exit_reason = "Broker Stop Triggered"
+                await db.commit()
+                return False, "ALREADY_TRIGGERED"
+            elif h_status in ("cancelled", "rejected"):
+                order.broker_stop_status = "CANCELLED"
+                await db.commit()
+                return True, "CANCELLED"
+        except Exception:
+            pass
+
+        return True, "CANCEL_ATTEMPTED"
+
+    async def adjust_broker_stop_quantity(
+        self,
+        db: AsyncSession,
+        order: Order,
+        new_qty: int,
+    ) -> bool:
+        """
+        Adjusts broker stop loss order quantity when position experiences a partial fill or reconciliation.
+        Cancels existing stop and places a new stop for the exact remaining open quantity.
+        """
+        if not order.broker_stop_order_id or order.broker_stop_status != "ACTIVE":
+            return False
+
+        if order.mode != "LIVE" or order.broker_stop_order_id.startswith("SIM-"):
+            return True
+
+        token_record = await broker_service.get_or_create_token_record(db)
+        if not token_record or not token_record.access_token:
+            return False
+
+        # Cancel current stop
+        try:
+            await upstox_client.cancel_order(token_record.access_token, order.broker_stop_order_id)
+            order.broker_stop_status = "CANCELLED"
+            await db.commit()
+        except Exception as exc:
+            logger.warning(f"Could not cancel old stop order before quantity adjustment: {exc}")
+
+        # Place new stop with new quantity
+        success, new_stop_id, _ = await self.place_broker_stop_loss(
+            db=db,
+            order=order,
+            fill_price=order.price,
+            filled_qty=new_qty,
+        )
+        return success
 
     async def get_orders(
         self, db: AsyncSession, status_filter: Optional[str] = None
@@ -329,6 +662,10 @@ class OrderService:
                 "exit_status": o.exit_status,
                 "instrument_key": o.instrument_key,
                 "exit_upstox_order_id": o.exit_upstox_order_id,
+                "broker_stop_order_id": o.broker_stop_order_id,
+                "broker_stop_status": o.broker_stop_status or ("ACTIVE" if o.broker_stop_order_id else "MISSING"),
+                "broker_stop_trigger_price": o.broker_stop_trigger_price,
+                "broker_stop_limit_price": o.broker_stop_limit_price,
             })
 
         if status_filter and status_filter != "ALL":
@@ -408,6 +745,10 @@ class OrderService:
                 "data": {"order_id": order_id, "status": db_order.status if db_order else "REJECTED"},
                 "message": f"Cannot cancel order {order_id}: No associated Upstox broker order ID found.",
             }
+
+        # Cancel broker stop first if active
+        if db_order and db_order.broker_stop_order_id:
+            await self.cancel_broker_stop_if_active(db, db_order, token_record)
 
         # 2. Send the correct broker order ID to Upstox
         cancel_success = False

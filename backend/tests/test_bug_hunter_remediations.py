@@ -3,7 +3,7 @@ import os
 import socket
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, time
 from unittest.mock import AsyncMock, patch, MagicMock
 import pytest
 from httpx import AsyncClient, ASGITransport
@@ -210,9 +210,9 @@ async def test_concurrent_order_placement_enforces_daily_limit():
 
             # Run 3 concurrent order placement requests
             results = await asyncio.gather(
-                svc.place_directional_order(db=session, option_type="CE", lots=1, strike=24350),
-                svc.place_directional_order(db=session, option_type="CE", lots=1, strike=24350),
-                svc.place_directional_order(db=session, option_type="CE", lots=1, strike=24350),
+                svc.place_directional_order(db=session, option_type="CE", lots=1, strike=24350, current_time=time(9, 15, 30)),
+                svc.place_directional_order(db=session, option_type="CE", lots=1, strike=24350, current_time=time(9, 15, 30)),
+                svc.place_directional_order(db=session, option_type="CE", lots=1, strike=24350, current_time=time(9, 15, 30)),
                 return_exceptions=True,
             )
 

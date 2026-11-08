@@ -177,7 +177,7 @@ async def test_second_trade_same_day_block():
 
         blocked = False
         try:
-            await order_svc.place_directional_order(session, "PE", lots=1)
+            await order_svc.place_directional_order(session, "PE", lots=1, current_time=time(9, 15, 30))
         except RiskLimitBreachedException as err:
             blocked = True
             assert "Maximum daily limit reached" in str(err)
@@ -250,22 +250,27 @@ def test_quantity_1_lot_validated_lot_size():
 
 
 # --------------------------------------------------------------------------- #
-# 6. Capital-Based Risk Management (Stop Loss = 4%, Target = 5%)
+# 6. Capital-Based Risk Management (Stop Loss = 5%, Target = 6%)
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
-async def test_capital_sl_4pct_and_target_5pct():
-    sl_amt, tgt_amt = capital_risk_limits(200000.0, stoploss_pct=4.0, target_pct=5.0)
-    assert sl_amt == 8000.0   # 4% of ₹2,00,000 = ₹8,000
-    assert tgt_amt == 10000.0  # 5% of ₹2,00,000 = ₹10,000
+async def test_capital_sl_5pct_and_target_6pct():
+    sl_amt, tgt_amt = capital_risk_limits(200000.0, stoploss_pct=5.0, target_pct=6.0)
+    assert sl_amt == 10000.0  # 5% of ₹2,00,000 = ₹10,000
+    assert tgt_amt == 12000.0 # 6% of ₹2,00,000 = ₹12,000
 
     async with AsyncSessionLocal() as session:
+        cfg = await broker_service.get_or_create_config(session)
+        cfg.stoploss_capital_pct = 5.0
+        cfg.target_capital_pct = 6.0
+        await session.commit()
+
         cfg_res = await strategy_service.get_strategy_config(session)
         data = cfg_res["data"]
         assert data["name"] == STRATEGY_NAME
-        assert data["stoploss_capital_pct"] == 4.0
-        assert data["target_capital_pct"] == 5.0
-        assert data["stoploss_amount"] == 8000.0
-        assert data["target_amount"] == 10000.0
+        assert data["stoploss_capital_pct"] == 5.0
+        assert data["target_capital_pct"] == 6.0
+        assert data["stoploss_amount"] == 10000.0
+        assert data["target_amount"] == 12000.0
 
 
 # --------------------------------------------------------------------------- #
@@ -308,6 +313,7 @@ async def test_failed_order_no_false_filled_status():
             option_type="CE",
             lots=1,
             order_type="MARKET",
+            current_time=time(9, 15, 30),
         )
         if res.get("data"):
             order_status = res["data"].get("status")

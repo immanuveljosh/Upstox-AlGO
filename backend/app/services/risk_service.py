@@ -32,7 +32,23 @@ class RiskService:
         positions_closed_count = 0
         orders_cancelled_count = 0
 
-        # Liquidate positions on Upstox
+        # 1. Cancel broker-side stop-loss orders FIRST for all open orders
+        stmt_open = select(Order).where(Order.status.in_(["PLACED", "PENDING_EXIT"]))
+        result_open = await db.execute(stmt_open)
+        placed_orders = result_open.scalars().all()
+        from backend.app.services.order_service import order_service
+        for o in placed_orders:
+            if o.broker_stop_order_id:
+                try:
+                    can_exit, cancel_reason = await order_service.cancel_broker_stop_if_active(db, o, token_record)
+                    if not can_exit:
+                        # Stop was already triggered at broker! Position already closed.
+                        closed_symbols.append(o.symbol)
+                        positions_closed_count += 1
+                except Exception as exc:
+                    logger.warning(f"Error cancelling broker stop for {o.symbol} in kill switch: {exc}")
+
+        # 2. Liquidate remaining open positions on Upstox
         try:
             positions = await upstox_client.get_positions(token_record.access_token)
             for pos in positions:

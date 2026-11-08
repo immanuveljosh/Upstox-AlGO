@@ -6,18 +6,15 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
 import { KillSwitchModal } from "@/components/ui/KillSwitchModal";
 import { ToastContainer } from "@/components/ui/ToastContainer";
-import { useTrading } from "@/context/TradingContext";
-import { History } from "lucide-react";
+import { CriticalAlertBanner } from "@/components/dashboard/CriticalAlertBanner";
 
 export function ShellLayout({ children }: { children: React.ReactNode }) {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const { mode } = useTrading();
   const pathname = usePathname();
 
-  // If on login or auth callback page, render full-bleed clean screen
   if (pathname === "/login" || pathname === "/auth/callback") {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
+      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans text-sm">
         {children}
         <ToastContainer />
       </div>
@@ -25,28 +22,23 @@ export function ShellLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950">
-      {/* Top Banner when in Backtest Mode */}
-      {mode === "BACKTEST" && (
-        <div className="bg-amber-500/15 border-b border-amber-500/30 text-amber-300 px-4 py-1.5 text-xs flex items-center justify-center gap-2 font-medium tracking-wide">
-          <History className="w-3.5 h-3.5" />
-          <span>
-            <strong>BACKTEST SIMULATION MODE ACTIVE:</strong> Orders are simulated safely using historical Nifty candle data. Real Upstox live capital is untouched.
-          </span>
-        </div>
-      )}
-
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans text-sm selection:bg-emerald-500 selection:text-slate-950">
+      <div className="flex-1 flex min-w-0">
+        {/* Left Sidebar (240px desktop, drawer mobile) */}
         <Sidebar
           isMobileOpen={isMobileSidebarOpen}
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
         />
 
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-          <TopBar onToggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)} />
-          <main className="flex-1 p-4 md:p-6 lg:p-8 max-w-[1600px] w-full mx-auto">
+        {/* Main Content Column */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <TopBar
+            onToggleMobileSidebar={() =>
+              setIsMobileSidebarOpen(!isMobileSidebarOpen)
+            }
+          />
+          <main className="flex-1 p-6 max-w-[1400px] w-full mx-auto space-y-6">
+            <CriticalAlertBanner />
             {children}
           </main>
         </div>

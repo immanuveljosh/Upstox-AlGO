@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     DEFAULT_TRADING_MODE: str = "BACKTEST"  # BACKTEST (default) or LIVE
     NIFTY_LOT_SIZE: int = 65  # 65 units per lot for current NIFTY contracts
     NIFTY_FREEZE_QTY: int = 1755  # 27 lots * 65 = 1755 max qty per order
+    BROKER_STOP_LIMIT_BUFFER_PCT: float = 0.05  # 5% buffer below trigger price for SL limit order
+    AUTO_EXIT_ON_BROKER_STOP_FAILURE: bool = False  # If True, immediate market exit if stop placement fails; False = software monitoring fallback + loud alert
 
     model_config = SettingsConfigDict(
         env_file=".env",

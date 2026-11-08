@@ -449,3 +449,44 @@ async def test_15_webhook_health_and_validation_endpoints():
             assert body["data"]["is_reachable"] is True
             assert body["data"]["layer"] == "OK"
             assert "SUCCESS" in body["data"]["diagnosis"]
+
+
+@pytest.mark.asyncio
+async def test_16_oauth_callback_is_connected_false():
+    """Test 16: OAuth callback returns error JSON or redirects to auth=error when update_access_token returns is_connected=False."""
+    from backend.app.api.v1.auth import generate_oauth_state
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        with patch(
+            "backend.app.services.upstox_client.upstox_client.exchange_token",
+            new_callable=AsyncMock,
+        ) as mock_exchange, patch(
+            "backend.app.services.broker_service.broker_service.update_access_token",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            mock_exchange.return_value = {"access_token": "unverified_test_token"}
+
+            # Case 1: format == "json" with explicit message
+            mock_update.return_value = (False, "Profile verification failed (HTTP 401)")
+            state_json = generate_oauth_state()
+            resp_json = await ac.get(
+                f"/api/v1/auth/callback?code=code_unverified_json&state={state_json}&format=json"
+            )
+            assert resp_json.status_code == 200
+            assert resp_json.json() == {
+                "connection_status": "connection_lost",
+                "data": {"token_saved": False, "is_connected": False},
+                "message": "Profile verification failed (HTTP 401)",
+            }
+
+            # Case 2: redirect mode with empty message falls back to default message and redirects to auth=error
+            mock_update.return_value = (False, "")
+            state_redir = generate_oauth_state()
+            resp_redir = await ac.get(
+                f"/api/v1/auth/callback?code=code_unverified_redir&state={state_redir}"
+            )
+            assert resp_redir.status_code == 302
+            location = resp_redir.headers["location"]
+            assert "/settings?auth=error&msg=Token%20received%20but%20could%20not%20be%20verified." in location
+            assert "auth=connected" not in location

@@ -11,9 +11,9 @@ import {
   Settings,
   LogOut,
   X,
-  Shield,
   Compass,
   History,
+  TableProperties,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -24,14 +24,13 @@ interface SidebarProps {
 export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { credentials, connectionStatus, strategy } = useTrading();
+  const { credentials, strategy } = useTrading();
 
   interface NavLinkItem {
     label: string;
     href: string;
     icon: React.ComponentType<{ className?: string }>;
-    badge: string | null;
-    badgeColor?: string;
+    badge?: string | null;
   }
 
   const navLinks: NavLinkItem[] = [
@@ -39,43 +38,37 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
       label: "Dashboard",
       href: "/",
       icon: LayoutDashboard,
-      badge: null,
     },
     {
       label: "Strategy",
       href: "/strategy",
       icon: Compass,
-      badge: strategy.status === "RUNNING" ? "ACTIVE" : "ITM 3",
-      badgeColor:
-        strategy.status === "RUNNING"
-          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-          : "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+      badge: strategy.status === "RUNNING" ? "Running" : null,
     },
     {
       label: "Backtest",
       href: "/backtest",
       icon: History,
-      badge: "1M–1Y",
-      badgeColor: "bg-amber-500/10 text-amber-400 border-amber-500/20",
+    },
+    {
+      label: "Trade History",
+      href: "/trade-history",
+      icon: TableProperties,
     },
     {
       label: "Orders",
       href: "/orders",
       icon: ClipboardList,
-      badge: "Live",
-      badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
     },
     {
       label: "P&L",
       href: "/pnl",
       icon: LineChart,
-      badge: null,
     },
     {
       label: "Settings",
       href: "/settings",
       icon: Settings,
-      badge: null,
     },
   ];
 
@@ -85,34 +78,29 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
   };
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-slate-950 border-r border-slate-800/80 text-slate-300">
+    <div className="flex flex-col h-full bg-slate-950 border-r border-slate-800 text-slate-300">
       {/* Brand Header */}
-      <div className="flex items-center justify-between h-16 px-5 border-b border-slate-800/80">
+      <div className="flex items-center justify-between h-16 px-5 border-b border-slate-800">
         <Link
           href="/"
           onClick={onCloseMobile}
-          className="flex items-center gap-2.5 group"
+          className="flex items-center gap-3"
         >
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-slate-950 font-black text-base shadow-md shadow-emerald-950">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-sm">
             ▲
           </div>
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-white tracking-tight text-sm">
-                UPSTOX ALGO
-              </span>
-              <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                PRO
-              </span>
-            </div>
-            <span className="text-[10px] text-slate-400 font-medium tracking-wide">
-              Nifty Directional Desk
+            <span className="font-semibold text-slate-100 tracking-tight text-sm">
+              Upstox Algo
+            </span>
+            <span className="text-xs text-slate-400">
+              Nifty Directional
             </span>
           </div>
         </Link>
 
-        {/* Mobile close button */}
         <button
+          type="button"
           onClick={onCloseMobile}
           aria-label="Close Sidebar"
           className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
@@ -122,11 +110,7 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
       </div>
 
       {/* Navigation links */}
-      <div className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
-        <div className="px-3 mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-          Main Console
-        </div>
-
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto" aria-label="Main Navigation">
         {navLinks.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href;
@@ -136,74 +120,55 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
               key={item.href}
               href={item.href}
               onClick={onCloseMobile}
-              className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-all group ${
+              className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-slate-900 text-white border border-slate-700/80 shadow-sm"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/50"
+                  ? "bg-slate-900 text-slate-100 border border-slate-800"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 border border-transparent"
               }`}
             >
               <div className="flex items-center gap-3">
                 <Icon
-                  className={`w-4 h-4 transition-colors ${
-                    isActive
-                      ? "text-emerald-400"
-                      : "text-slate-400 group-hover:text-slate-300"
+                  className={`w-4 h-4 ${
+                    isActive ? "text-emerald-400" : "text-slate-400"
                   }`}
                 />
-                <span className="tracking-wide">{item.label}</span>
+                <span>{item.label}</span>
               </div>
 
               {item.badge && (
-                <span
-                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
-                    item.badgeColor ||
-                    "bg-slate-800 text-slate-400 border-slate-700"
-                  }`}
-                >
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
                   {item.badge}
                 </span>
               )}
             </Link>
           );
         })}
-      </div>
+      </nav>
 
-      {/* Broker Session Info */}
-      <div className="p-3 mx-3 mb-3 rounded-xl bg-slate-900/80 border border-slate-800">
-        <div className="flex items-center justify-between text-xs mb-2">
-          <div className="flex items-center gap-1.5 text-slate-400">
-            <Shield className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="font-semibold text-slate-200 text-[11px]">
-              {credentials.accountName}
-            </span>
+      {/* Compact Account & Settings Link */}
+      <div className="p-4 border-t border-slate-800 space-y-3">
+        <div className="flex items-center justify-between text-xs text-slate-400">
+          <div className="truncate">
+            <span className="text-slate-200 font-medium">{credentials.accountName}</span>
+            <span className="mx-1.5 text-slate-600">&bull;</span>
+            <span className="font-mono">{credentials.ucc}</span>
           </div>
-          <span className="text-[10px] font-mono text-slate-400">
-            UCC: {credentials.ucc}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400 border-t border-slate-800/80">
-          <span>Broker API</span>
-          <span
-            className={`font-mono text-[10px] ${
-              connectionStatus === "CONNECTED"
-                ? "text-emerald-400"
-                : "text-rose-400"
-            }`}
+          <Link
+            href="/settings"
+            onClick={onCloseMobile}
+            className="text-xs font-medium text-emerald-400 hover:text-emerald-300 shrink-0"
           >
-            {connectionStatus === "CONNECTED" ? "UPSTOX v2 LIVE" : "DISCONNECTED"}
-          </span>
+            Settings
+          </Link>
         </div>
-      </div>
 
-      {/* Logout button */}
-      <div className="p-3 border-t border-slate-800/80">
         <button
+          type="button"
           onClick={handleLogout}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-950/20 transition-all cursor-pointer"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-950/20 transition-colors cursor-pointer"
         >
           <LogOut className="w-4 h-4" />
-          <span>Disconnect & Logout</span>
+          <span>Sign out</span>
         </button>
       </div>
     </div>
@@ -211,19 +176,19 @@ export function Sidebar({ isMobileOpen, onCloseMobile }: SidebarProps) {
 
   return (
     <>
-      {/* Desktop Persistent Sidebar */}
-      <aside className="hidden lg:block w-64 shrink-0 h-screen sticky top-0">
+      {/* Desktop Persistent Sidebar (240px) */}
+      <aside className="hidden lg:block w-60 shrink-0 h-screen sticky top-0">
         {sidebarContent}
       </aside>
 
-      {/* Mobile Drawer */}
+      {/* Mobile & Tablet Drawer */}
       {isMobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
           <div
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs"
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm"
             onClick={onCloseMobile}
           />
-          <div className="relative w-64 max-w-xs h-full z-10">
+          <div className="relative w-60 max-w-xs h-full z-10">
             {sidebarContent}
           </div>
         </div>

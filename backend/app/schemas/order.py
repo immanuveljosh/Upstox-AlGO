@@ -30,6 +30,10 @@ class OrderPlacedData(BaseModel):
     target_capital_5pct: str
     reject_reason: Optional[str] = None
     time: str
+    broker_stop_order_id: Optional[str] = None
+    broker_stop_status: Optional[str] = None
+    broker_stop_trigger_price: Optional[float] = None
+    broker_stop_limit_price: Optional[float] = None
 
 
 class OrderItem(BaseModel):
@@ -53,6 +57,10 @@ class OrderItem(BaseModel):
     exit_status: Optional[str] = None
     instrument_key: Optional[str] = None
     exit_upstox_order_id: Optional[str] = None
+    broker_stop_order_id: Optional[str] = None
+    broker_stop_status: Optional[str] = None
+    broker_stop_trigger_price: Optional[float] = None
+    broker_stop_limit_price: Optional[float] = None
 
 
 class OrphanPositionItem(BaseModel):

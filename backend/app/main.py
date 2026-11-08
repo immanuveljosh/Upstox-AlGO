@@ -53,6 +53,10 @@ async def init_database():
             ("instrument_key", "VARCHAR(100)"),
             ("exit_upstox_order_id", "VARCHAR(100)"),
             ("exit_status", "VARCHAR(50)"),
+            ("broker_stop_order_id", "VARCHAR(100)"),
+            ("broker_stop_status", "VARCHAR(50)"),
+            ("broker_stop_trigger_price", "FLOAT"),
+            ("broker_stop_limit_price", "FLOAT"),
         ]:
             try:
                 await conn.execute(text(f"ALTER TABLE orders ADD COLUMN {col_name} {col_type}"))
@@ -134,7 +138,9 @@ async def init_database():
             existing_cfg.option_selection = OPTION_SELECTION
             existing_cfg.entry_window_start = "09:15:00"
             existing_cfg.entry_window_end = "09:17:00"
-            if existing_cfg.stoploss_capital_pct == 5.0 and existing_cfg.target_capital_pct == 6.0:
+            # One-time safe migration: if database has old defaults (4.0% SL and 5.0% Target), migrate to new defaults (5.0% SL and 6.0% Target).
+            # Any custom user configuration (e.g. 3.5%, 8.0%) is preserved and not overwritten.
+            if existing_cfg.stoploss_capital_pct == 4.0 and existing_cfg.target_capital_pct == 5.0:
                 existing_cfg.stoploss_capital_pct = DEFAULT_STOPLOSS_CAPITAL_PCT
                 existing_cfg.target_capital_pct = DEFAULT_TARGET_CAPITAL_PCT
             if existing_cfg.lot_size == 25:

@@ -217,6 +217,7 @@ async def run_backtest(
     to_date: Optional[str] = Query(None, description="End date YYYY-MM-DD for custom range"),
     capital: Optional[float] = Query(None, description="Initial strategy capital"),
     lots: Optional[int] = Query(None, description="Lot size multiplier"),
+    allow_nifty_proxy: Optional[bool] = Query(False, description="Allow NIFTY 50 cash index gap proxy when Gift Nifty data is missing (default False)"),
     payload: Optional[BacktestRequest] = None,
     db: AsyncSession = Depends(get_db),
 ):
@@ -230,6 +231,7 @@ async def run_backtest(
     end_d = payload.to_date if payload and payload.to_date else to_date
     cap = payload.capital if payload and payload.capital else capital
     trade_lots = payload.lots if payload and payload.lots else lots
+    proxy_allowed = bool(payload.allow_nifty_proxy if (payload and payload.allow_nifty_proxy is not None) else allow_nifty_proxy)
 
     return await strategy_service.run_backtest(
         db=db,
@@ -238,6 +240,7 @@ async def run_backtest(
         to_date=end_d,
         capital=cap,
         lots=trade_lots,
+        allow_nifty_proxy=proxy_allowed,
     )
 
 

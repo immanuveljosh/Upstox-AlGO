@@ -29,10 +29,10 @@ class SystemConfig(Base, TimestampMixin):
     last_trade_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # YYYY-MM-DD
     trades_executed_today: Mapped[int] = mapped_column(Integer, default=0)
 
-    # Capital-Based Risk Management (4% SL / 5% Target of total strategy capital)
+    # Capital-Based Risk Management (5% SL / 6% Target of total strategy capital)
     total_capital: Mapped[float] = mapped_column(Float, default=200000.0)
-    stoploss_capital_pct: Mapped[float] = mapped_column(Float, default=4.0)  # 4% of strategy capital
-    target_capital_pct: Mapped[float] = mapped_column(Float, default=5.0)  # 5% of strategy capital
+    stoploss_capital_pct: Mapped[float] = mapped_column(Float, default=5.0)  # 5% of strategy capital
+    target_capital_pct: Mapped[float] = mapped_column(Float, default=6.0)  # 6% of strategy capital
 
     # Order Lot Configuration (validated from Upstox contract metadata)
     lot_size: Mapped[int] = mapped_column(Integer, default=65)

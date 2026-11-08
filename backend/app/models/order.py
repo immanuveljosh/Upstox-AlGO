@@ -43,4 +43,11 @@ class Order(Base, TimestampMixin):
     broker_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     exit_reason: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
+    # Broker-Side Stop Loss Tracking
+    broker_stop_order_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    broker_stop_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # ACTIVE, TRIGGERED, CANCELLED, REJECTED, MISSING, FAILED, PENDING_ENTRY_FILL
+    broker_stop_trigger_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    broker_stop_limit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+
 

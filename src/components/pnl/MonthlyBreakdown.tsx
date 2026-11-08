@@ -6,9 +6,9 @@ import {
   Calendar,
   ArrowUpRight,
   ArrowDownRight,
-  AlertTriangle,
   RefreshCw,
 } from "lucide-react";
+import { Card, StatusBadge, EmptyState } from "@/components/ui/DesignSystem";
 
 export interface DailyRecord {
   date: string;
@@ -38,101 +38,72 @@ function isValidDailyRecord(item: unknown): item is DailyRecord {
 export function MonthlyBreakdown({
   records = [],
   isLoading = false,
-  error = null,
 }: MonthlyBreakdownProps) {
   const safeRecords: DailyRecord[] = Array.isArray(records)
     ? records.filter(isValidDailyRecord)
     : [];
 
   return (
-    <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
-      <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-emerald-400" />
-          <h4 className="text-sm font-bold text-white tracking-tight">
-            Daily Trading Journal Breakdown
-          </h4>
+    <Card
+      title="Daily Trading Journal Breakdown"
+      subtitle="Session-by-session realized P&L summary"
+      headerAction={
+        <StatusBadge tone="neutral">
+          {safeRecords.length} {safeRecords.length === 1 ? "session" : "sessions"}
+        </StatusBadge>
+      }
+      noPadding
+    >
+      {isLoading && safeRecords.length === 0 ? (
+        <div className="py-10 px-6 text-center text-xs text-slate-400 font-mono">
+          <span className="inline-flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+            Loading trading session breakdown...
+          </span>
         </div>
-        <span className="text-xs text-slate-400 font-mono">
-          {safeRecords.length} Trading{" "}
-          {safeRecords.length === 1 ? "Session" : "Sessions"}
-        </span>
-      </div>
-
-      {error && (
-        <div
-          role="alert"
-          className="px-4 py-3 bg-rose-500/10 border-b border-rose-500/20 flex items-center gap-2 text-xs text-rose-300"
-        >
-          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse text-xs">
-          <thead>
-            <tr className="border-b border-slate-800 bg-slate-950/60 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              <th className="py-3 px-4">Date</th>
-              <th className="py-3 px-4">Trades</th>
-              <th className="py-3 px-4">Performance</th>
-              <th className="py-3 px-4 text-right">Net Session P&amp;L</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800/80">
-            {isLoading && safeRecords.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={4}
-                  className="py-8 px-4 text-center text-slate-400 font-mono"
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                    Loading trading session breakdown...
-                  </span>
-                </td>
+      ) : safeRecords.length === 0 ? (
+        <EmptyState
+          icon={Calendar}
+          title="No closed trading sessions"
+          description="No closed trading sessions recorded for this period yet."
+        />
+      ) : (
+        <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead className="sticky top-0 z-10 bg-slate-950 border-b border-slate-800">
+              <tr className="text-xs font-medium text-slate-400">
+                <th className="py-3 px-6">Date</th>
+                <th className="py-3 px-6 text-right">Trades</th>
+                <th className="py-3 px-6">Performance</th>
+                <th className="py-3 px-6 text-right">Net session P&amp;L</th>
               </tr>
-            ) : safeRecords.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={4}
-                  className="py-8 px-4 text-center text-slate-500 font-mono"
-                >
-                  No closed trading sessions recorded for this period.
-                </td>
-              </tr>
-            ) : (
-              safeRecords.map((r, idx) => {
+            </thead>
+            <tbody className="divide-y divide-slate-800/80 font-mono tabular-nums">
+              {safeRecords.map((r, idx) => {
                 const isGreen = r.pnl >= 0;
                 return (
                   <tr
                     key={`${r.date}-${idx}`}
                     className="hover:bg-slate-800/40 transition-colors"
                   >
-                    <td className="py-3 px-4 font-mono font-medium text-slate-200">
+                    <td className="py-3 px-6 font-medium text-slate-200 whitespace-nowrap">
                       {r.date}
                     </td>
-                    <td className="py-3 px-4 text-slate-400 font-mono">
+                    <td className="py-3 px-6 text-right text-slate-400 whitespace-nowrap">
                       {r.trades} {r.trades === 1 ? "trade" : "trades"}
                     </td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
-                          isGreen
-                            ? "bg-emerald-500/10 text-emerald-400"
-                            : "bg-rose-500/10 text-rose-400"
-                        }`}
-                      >
+                    <td className="py-3 px-6 whitespace-nowrap">
+                      <StatusBadge tone={isGreen ? "success" : "danger"}>
                         {isGreen ? (
                           <ArrowUpRight className="w-3 h-3" />
                         ) : (
                           <ArrowDownRight className="w-3 h-3" />
                         )}
                         {isGreen ? "PROFIT" : "DRAWDOWN"}
-                      </span>
+                      </StatusBadge>
                     </td>
                     <td
-                      className={`py-3 px-4 text-right font-mono font-bold tabular-nums ${
+                      className={`py-3 px-6 text-right font-semibold whitespace-nowrap ${
                         isGreen ? "text-emerald-400" : "text-rose-400"
                       }`}
                     >
@@ -140,11 +111,11 @@ export function MonthlyBreakdown({
                     </td>
                   </tr>
                 );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }

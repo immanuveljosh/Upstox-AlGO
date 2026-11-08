@@ -52,8 +52,8 @@ All algorithmic trading in this repository revolves around the **Nifty Direction
 
 ### Risk Management (Capital-Based Limits)
 Risk limits are calculated from **TOTAL STRATEGY CAPITAL** (default ₹2,00,000), including statutory F&O charges:
-- **Stop Loss**: **-4.0% of Total Strategy Capital** (e.g., on ₹2,00,000 capital, SL = -₹8,000).
-- **Target Profit**: **+5.0% of Total Strategy Capital** (e.g., on ₹2,00,000 capital, Target = +₹10,000).
+- **Stop Loss**: **-5.0% of Total Strategy Capital** (e.g., on ₹2,00,000 capital, SL = -₹10,000).
+- **Target Profit**: **+6.0% of Total Strategy Capital** (e.g., on ₹2,00,000 capital, Target = +₹12,000).
 - **Auto Square-Off**: Open intraday positions automatically exit at **15:15 IST**.
 
 ---

@@ -11,7 +11,8 @@ import {
   deriveDailyRecordsFromOrders,
   normalizePnlSummary,
 } from "@/lib/pnlNormalizer";
-import { LineChart, RefreshCw, AlertTriangle } from "lucide-react";
+import { RefreshCw, AlertTriangle } from "lucide-react";
+import { PageHeader, Card } from "@/components/ui/DesignSystem";
 
 export default function PnlPage() {
   const { orders } = useTrading();
@@ -24,43 +25,46 @@ export default function PnlPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  const fetchPnl = useCallback(async (selectedPeriod: "monthly" | "sixMonth" | "yearly") => {
-    setIsLoading(true);
-    setApiError(null);
-    try {
-      const res = await fetch(
-        `http://localhost:8000/api/v1/pnl/summary?period=${selectedPeriod}`
-      );
-      const json = await res.json().catch(() => null);
+  const fetchPnl = useCallback(
+    async (selectedPeriod: "monthly" | "sixMonth" | "yearly") => {
+      setIsLoading(true);
+      setApiError(null);
+      try {
+        const res = await fetch(
+          `http://localhost:8000/api/v1/pnl/summary?period=${selectedPeriod}`
+        );
+        const json = await res.json().catch(() => null);
 
-      if (!res.ok) {
-        const msg =
-          (json && (json.message || json.detail)) ||
-          `Failed to load P&L summary (HTTP ${res.status}).`;
-        setApiError(String(msg));
-        setSummary(createEmptyPnlSummary(selectedPeriod));
-        return;
-      }
-
-      if (json && json.data) {
-        setSummary(normalizePnlSummary(json.data, selectedPeriod));
-      } else {
-        setSummary(createEmptyPnlSummary(selectedPeriod));
-        if (json?.connection_status === "connection_lost" && json?.message) {
-          setApiError(String(json.message));
+        if (!res.ok) {
+          const msg =
+            (json && (json.message || json.detail)) ||
+            `Failed to load P&L summary (HTTP ${res.status}).`;
+          setApiError(String(msg));
+          setSummary(createEmptyPnlSummary(selectedPeriod));
+          return;
         }
+
+        if (json && json.data) {
+          setSummary(normalizePnlSummary(json.data, selectedPeriod));
+        } else {
+          setSummary(createEmptyPnlSummary(selectedPeriod));
+          if (json?.connection_status === "connection_lost" && json?.message) {
+            setApiError(String(json.message));
+          }
+        }
+      } catch (err: unknown) {
+        const errMsg =
+          err instanceof Error
+            ? err.message
+            : "Unable to reach P&L backend service.";
+        setApiError(`P&L API Error: ${errMsg}`);
+        setSummary(createEmptyPnlSummary(selectedPeriod));
+      } finally {
+        setIsLoading(false);
       }
-    } catch (err: unknown) {
-      const errMsg =
-        err instanceof Error
-          ? err.message
-          : "Unable to reach P&L backend service.";
-      setApiError(`P&L API Error: ${errMsg}`);
-      setSummary(createEmptyPnlSummary(selectedPeriod));
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   useEffect(() => {
     fetchPnl(period);
@@ -77,79 +81,74 @@ export default function PnlPage() {
     : [];
 
   return (
-    <div className="space-y-5">
-      {/* Page Header with Period Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <LineChart className="w-5 h-5 text-emerald-400" />
-            <h1 className="text-xl font-bold text-white tracking-tight">
-              P&amp;L Analytics &amp; Equity Curves
-            </h1>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Realized index returns, win rate statistics, and maximum drawdown
-            evaluation from real Upstox trades.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fetchPnl(period)}
-            disabled={isLoading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-300 transition-colors cursor-pointer"
-          >
-            <RefreshCw
-              className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-emerald-400" : ""}`}
-            />
-            <span>Refresh</span>
-          </button>
-
-          {/* Period Selector Tabs */}
-          <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800">
-            {(
-              [
-                { id: "monthly", label: "Monthly" },
-                { id: "sixMonth", label: "6 Months" },
-                { id: "yearly", label: "Yearly" },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setPeriod(tab.id)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  period === tab.id
-                    ? "bg-slate-800 text-emerald-400 border border-slate-700/80 shadow-sm"
-                    : "text-slate-400 hover:text-slate-200"
+    <div className="space-y-6">
+      <PageHeader
+        title="P&L Analytics & Equity Curve"
+        subtitle="Realized index returns, win rate statistics, and maximum drawdown evaluation from closed trades."
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => fetchPnl(period)}
+              disabled={isLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-medium text-slate-300 transition-colors cursor-pointer"
+            >
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${
+                  isLoading ? "animate-spin text-emerald-400" : ""
                 }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+              />
+              <span>Refresh</span>
+            </button>
+
+            <div className="flex items-center bg-slate-900 p-1 rounded-lg border border-slate-800">
+              {(
+                [
+                  { id: "monthly", label: "Monthly" },
+                  { id: "sixMonth", label: "6 Months" },
+                  { id: "yearly", label: "Yearly" },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setPeriod(tab.id)}
+                  className={`px-3.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                    period === tab.id
+                      ? "bg-slate-800 text-emerald-400 border border-slate-700"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </>
+        }
+      />
 
       {apiError && (
         <div
           role="alert"
-          className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center gap-2 text-xs text-rose-300"
+          className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 flex items-center gap-2 text-xs text-rose-300"
         >
           <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
           <span>{apiError}</span>
         </div>
       )}
 
-      {/* Primary KPI Metrics */}
+      {/* Primary KPI Metrics (max 4 per row) */}
       <PnlMetrics summary={summary} />
 
       {/* Equity Curve Card */}
-      <div className="rounded-xl bg-slate-900 border border-slate-800 p-5 md:p-6 shadow-sm">
+      <Card
+        title="Cumulative account equity curve"
+        subtitle="Realized equity trajectory across closed trading sessions"
+      >
         <EquityCurveChart data={safeEquityCurve} />
-      </div>
+      </Card>
 
-      {/* Session Journal Breakdown Table */}
+      {/* Daily Trading Journal Breakdown (Single source of truth on /pnl) */}
       <MonthlyBreakdown
         records={safeDailyRecords}
         isLoading={isLoading}

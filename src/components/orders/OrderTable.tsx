@@ -4,12 +4,8 @@ import React, { useState } from "react";
 import { useTrading } from "@/context/TradingContext";
 import { Order, OrderStatus } from "@/types/trading";
 import { formatINR } from "@/lib/utils";
-import {
-  Search,
-  CheckCircle2,
-  Clock,
-  AlertTriangle,
-} from "lucide-react";
+import { Search, ClipboardList } from "lucide-react";
+import { Card, StatusBadge, EmptyState } from "@/components/ui/DesignSystem";
 
 export function OrderTable() {
   const { orders } = useTrading();
@@ -36,40 +32,34 @@ export function OrderTable() {
   };
 
   return (
-    <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden flex flex-col">
+    <Card noPadding>
       {/* Controls & Tabs */}
-      <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        {/* Tabs */}
+      <div className="px-6 py-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
           {(["ALL", "PLACED", "CLOSED", "REJECTED"] as const).map((tab) => {
             const count = counts[tab];
             const label =
               tab === "ALL"
-                ? "All Orders"
+                ? "All orders"
                 : tab === "PLACED"
-                ? "Placed Orders"
+                ? "Placed"
                 : tab === "CLOSED"
-                ? "Closed Orders"
-                : "Rejected Orders";
+                ? "Closed"
+                : "Rejected";
 
             return (
               <button
                 key={tab}
+                type="button"
                 onClick={() => setActiveTab(tab)}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all cursor-pointer ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
                   activeTab === tab
-                    ? "bg-slate-800 text-white border border-slate-700 shadow-sm"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-950"
+                    ? "bg-slate-800 text-slate-100 border border-slate-700"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-950 border border-transparent"
                 }`}
               >
                 <span>{label}</span>
-                <span
-                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                    activeTab === tab
-                      ? "bg-slate-900 text-slate-200"
-                      : "bg-slate-950 text-slate-400"
-                  }`}
-                >
+                <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-slate-950 text-slate-300 tabular-nums">
                   {count}
                 </span>
               </button>
@@ -77,7 +67,6 @@ export function OrderTable() {
           })}
         </div>
 
-        {/* Search */}
         <div className="relative w-full sm:w-64">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
@@ -85,36 +74,48 @@ export function OrderTable() {
             placeholder="Search symbol or Order ID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50"
+            className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
           />
         </div>
       </div>
 
       {/* Orders Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="border-b border-slate-800 bg-slate-950/60 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              <th className="py-3 px-4">Time</th>
-              <th className="py-3 px-4">Order ID</th>
-              <th className="py-3 px-4">Symbol</th>
-              <th className="py-3 px-4">Type</th>
-              <th className="py-3 px-4 text-right">Lots &times; Lot Size</th>
-              <th className="py-3 px-4 text-right">Total Qty</th>
-              <th className="py-3 px-4 text-right">Price</th>
-              <th className="py-3 px-4 text-center">Status</th>
-              <th className="py-3 px-4 text-right">P&amp;L</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800/80 text-xs">
-            {filteredOrders.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="py-8 text-center text-slate-500">
-                  No orders found in this view.
-                </td>
+      {filteredOrders.length === 0 ? (
+        <EmptyState
+          icon={ClipboardList}
+          title="No orders found"
+          description={
+            searchQuery
+              ? "No orders match your search filter."
+              : "Intraday order entries and square-offs will appear here."
+          }
+        />
+      ) : (
+        <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
+          <table className="w-full text-left border-collapse">
+            <thead className="sticky top-0 z-10 bg-slate-950 border-b border-slate-800">
+              <tr className="text-xs font-medium text-slate-400">
+                <th className="py-3 px-4 whitespace-nowrap">Time</th>
+                <th className="py-3 px-4 whitespace-nowrap">Order ID</th>
+                <th className="py-3 px-4 whitespace-nowrap">Symbol</th>
+                <th className="py-3 px-4 whitespace-nowrap">Type</th>
+                <th className="py-3 px-4 whitespace-nowrap text-right">
+                  Lots &times; Lot size
+                </th>
+                <th className="py-3 px-4 whitespace-nowrap text-right">
+                  Total qty
+                </th>
+                <th className="py-3 px-4 whitespace-nowrap text-right">
+                  Price
+                </th>
+                <th className="py-3 px-4 whitespace-nowrap">Status</th>
+                <th className="py-3 px-4 whitespace-nowrap text-right">
+                  P&amp;L
+                </th>
               </tr>
-            ) : (
-              filteredOrders.map((order, idx) => {
+            </thead>
+            <tbody className="divide-y divide-slate-800/80 text-xs font-mono tabular-nums">
+              {filteredOrders.map((order, idx) => {
                 const isCall = order.type === "CE";
                 const safePrice = Number(order.price ?? 0);
                 const safeLots = Number(order.lots ?? 1);
@@ -124,92 +125,68 @@ export function OrderTable() {
                   Math.round(safeQty / Math.max(1, safeLots)) ||
                   65;
 
-                let statusBadge = (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                    <Clock className="w-3 h-3" />
-                    PLACED
-                  </span>
-                );
-
-                if (order.status === "CLOSED") {
-                  statusBadge = (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      <CheckCircle2 className="w-3 h-3" />
-                      CLOSED
-                    </span>
-                  );
-                } else if (order.status === "REJECTED") {
-                  statusBadge = (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                      <AlertTriangle className="w-3 h-3" />
-                      REJECTED
-                    </span>
-                  );
-                }
+                const rawStatus = String(order.status || "PLACED");
+                const statusTone =
+                  rawStatus === "CLOSED"
+                    ? "success"
+                    : rawStatus === "REJECTED" ||
+                      rawStatus === "FAILED_EXIT"
+                    ? "danger"
+                    : rawStatus === "PENDING_EXIT"
+                    ? "warning"
+                    : "info";
 
                 return (
                   <tr
                     key={order.id || `order-${idx}`}
-                    className="hover:bg-slate-800/40 transition-colors group"
+                    className="hover:bg-slate-800/40 transition-colors"
                   >
-                    <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px]">
-                      {order.time || "—"}
+                    <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
+                      {order.time || "--"}
                     </td>
 
-                    <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px]">
-                      {order.id || "—"}
+                    <td className="py-3 px-4 text-slate-400 whitespace-nowrap">
+                      {order.id || "--"}
                     </td>
 
-                    <td className="py-3.5 px-4">
-                      <span className="font-mono font-bold text-slate-100">
-                        {order.symbol || "—"}
-                      </span>
+                    <td className="py-3 px-4 font-semibold text-slate-100 whitespace-nowrap">
+                      {order.symbol || "--"}
                     </td>
 
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
-                          isCall
-                            ? "bg-emerald-500/15 text-emerald-400"
-                            : "bg-rose-500/15 text-rose-400"
-                        }`}
-                      >
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <StatusBadge tone={isCall ? "success" : "danger"}>
                         {order.type}
-                      </span>
+                      </StatusBadge>
                     </td>
 
-                    <td className="py-3.5 px-4 text-right font-mono text-slate-300">
-                      {safeLots} {safeLots === 1 ? "Lot" : "Lots"} &times;{" "}
-                      <span className="text-emerald-400">{safeLotSize}</span>
+                    <td className="py-3 px-4 text-right text-slate-300 whitespace-nowrap">
+                      {safeLots} &times; {safeLotSize}
                     </td>
 
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-white">
-                      {safeQty}{" "}
-                      <span className="text-[10px] font-normal text-slate-400">
-                        Qty
-                      </span>
+                    <td className="py-3 px-4 text-right font-semibold text-slate-100 whitespace-nowrap">
+                      {safeQty} Qty
                     </td>
 
-                    <td className="py-3.5 px-4 text-right font-mono text-slate-200">
+                    <td className="py-3 px-4 text-right text-slate-200 whitespace-nowrap">
                       ₹{safePrice.toFixed(2)}
                       {order.exitPrice !== undefined &&
                         order.exitPrice !== null && (
-                          <div className="text-[10px] text-slate-500">
+                          <div className="text-xs text-slate-500">
                             Exit: ₹{Number(order.exitPrice).toFixed(2)}
                           </div>
                         )}
                     </td>
 
-                    <td className="py-3.5 px-4 text-center">
-                      {statusBadge}
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <StatusBadge tone={statusTone}>{order.status}</StatusBadge>
                       {order.rejectReason && (
-                        <div className="text-[10px] text-rose-400/90 text-left mt-1 line-clamp-1 max-w-xs">
+                        <div className="text-xs text-rose-400 mt-1 max-w-xs truncate font-sans">
                           {order.rejectReason}
                         </div>
                       )}
                     </td>
 
-                    <td className="py-3.5 px-4 text-right font-mono font-bold">
+                    <td className="py-3 px-4 text-right font-semibold whitespace-nowrap">
                       {order.pnl !== undefined &&
                       order.pnl !== null &&
                       order.status !== "REJECTED" ? (
@@ -223,16 +200,16 @@ export function OrderTable() {
                           {formatINR(order.pnl, true)}
                         </span>
                       ) : (
-                        <span className="text-slate-600">—</span>
+                        <span className="text-slate-500">--</span>
                       )}
                     </td>
                   </tr>
                 );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }

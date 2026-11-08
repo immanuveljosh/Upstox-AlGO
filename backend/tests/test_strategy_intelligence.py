@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import uuid
 import pytest
+from sqlalchemy import delete
 from backend.app.core.database import AsyncSessionLocal
 from backend.app.models.order import Order
 from backend.app.models.backtest import GiftNiftyObservation
@@ -10,6 +11,9 @@ from backend.app.services.strategy_intelligence_service import strategy_intellig
 @pytest.mark.asyncio
 async def test_live_intelligence_empty_state():
     async with AsyncSessionLocal() as db:
+        await db.execute(delete(Order))
+        await db.execute(delete(GiftNiftyObservation))
+        await db.commit()
         res = await strategy_intelligence_service.get_intelligence(
             db=db,
             mode="LIVE",

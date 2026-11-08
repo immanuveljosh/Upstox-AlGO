@@ -168,8 +168,11 @@ async def auth_callback(
         error_url = f"{settings.FRONTEND_URL}/settings?auth=error&msg={quote(msg)}"
         return RedirectResponse(url=error_url, status_code=status.HTTP_302_FOUND)
 
-    # 3. Check for duplicate exchange of same authorization code (e.g. React 18 strict mode double-fetch)
-    if is_code_already_processed(code.strip()):
+    # 3. Normalize code
+    code = code.strip()
+
+    # 4. Check for duplicate exchange of same authorization code (single-use enforcement)
+    if is_code_already_processed(code):
         token_record = await broker_service.get_or_create_token_record(db)
         if token_record.is_valid:
             if format == "json":
@@ -187,19 +190,33 @@ async def auth_callback(
                 url=f"{settings.FRONTEND_URL}/settings?auth=connected&ucc={token_record.user_id or ''}",
                 status_code=status.HTTP_302_FOUND,
             )
+        msg = "This login code was already used. Please log in again."
+        if format == "json":
+            return {"connection_status": "connection_lost", "data": None, "message": msg}
+        error_url = f"{settings.FRONTEND_URL}/settings?auth=error&msg={quote(msg)}"
+        return RedirectResponse(url=error_url, status_code=status.HTTP_302_FOUND)
 
-    # 4. Validate CSRF state if provided
-    if state and not validate_and_consume_oauth_state(state):
-        logger.warning(f"OAuth state mismatch or expired state: {state}")
+    # 5. Strictly enforce CSRF state
+    if not validate_and_consume_oauth_state(state):
+        logger.warning("OAuth callback rejected due to missing, invalid, or expired CSRF state.")
+        msg = "Invalid or expired login session. Please start again."
+        if format == "json":
+            return {"connection_status": "connection_lost", "data": None, "message": msg}
+        error_url = f"{settings.FRONTEND_URL}/settings?auth=error&msg={quote(msg)}"
+        return RedirectResponse(url=error_url, status_code=status.HTTP_302_FOUND)
 
-    token_record = await broker_service.get_or_create_token_record(db)
-    client_id = token_record.api_key or settings.UPSTOX_API_KEY
-    client_secret = token_record.api_secret or settings.UPSTOX_API_SECRET
-    redirect_uri = token_record.redirect_uri or settings.UPSTOX_REDIRECT_URI
+    # 6. Mark authorization code as used BEFORE calling Upstox (no await between check and mark)
+    mark_code_processed(code)
 
+    # 7 & 8. Exchange code for token and store it, catching all exceptions
     try:
+        token_record = await broker_service.get_or_create_token_record(db)
+        client_id = token_record.api_key or settings.UPSTOX_API_KEY
+        client_secret = token_record.api_secret or settings.UPSTOX_API_SECRET
+        redirect_uri = token_record.redirect_uri or settings.UPSTOX_REDIRECT_URI
+
         token_data = await upstox_client.exchange_token(
-            code=code.strip(),
+            code=code,
             client_id=client_id,
             client_secret=client_secret,
             redirect_uri=redirect_uri,
@@ -209,18 +226,26 @@ async def auth_callback(
         if not access_token:
             raise ValueError("No access_token returned by Upstox OAuth endpoint.")
 
-        # Mark code as processed to block duplicate calls
-        mark_code_processed(code.strip())
-
         is_connected, msg = await broker_service.update_access_token(db, access_token)
         log_critical_action("OAUTH_TOKEN_EXCHANGED", {"status": is_connected, "user": token_record.user_id})
 
+        if not is_connected:
+            err_msg = msg or "Token received but could not be verified."
+            if format == "json":
+                return {
+                    "connection_status": "connection_lost",
+                    "data": {"token_saved": False, "is_connected": False},
+                    "message": err_msg,
+                }
+            error_url = f"{settings.FRONTEND_URL}/settings?auth=error&msg={quote(err_msg)}"
+            return RedirectResponse(url=error_url, status_code=status.HTTP_302_FOUND)
+
         if format == "json":
             return {
-                "connection_status": "connected" if is_connected else "connection_lost",
+                "connection_status": "connected",
                 "data": {
                     "token_saved": True,
-                    "is_connected": is_connected,
+                    "is_connected": True,
                     "user_name": token_record.user_name,
                     "ucc": token_record.user_id,
                 },
@@ -238,9 +263,9 @@ async def auth_callback(
         error_url = f"{settings.FRONTEND_URL}/settings?auth=error&msg={quote(msg)}"
         return RedirectResponse(url=error_url, status_code=status.HTTP_302_FOUND)
 
-    except Exception as exc:
-        logger.error(f"Upstox OAuth callback failed: {str(exc)}")
-        msg = f"OAuth handshake failed: {str(exc)}"
+    except Exception:
+        logger.exception("Unexpected error during Upstox OAuth callback")
+        msg = "Login failed unexpectedly. Please try again."
         if format == "json":
             return {"connection_status": "connection_lost", "data": None, "message": msg}
         error_url = f"{settings.FRONTEND_URL}/settings?auth=error&msg={quote(msg)}"

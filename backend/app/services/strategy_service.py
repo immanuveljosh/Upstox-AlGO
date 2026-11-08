@@ -89,8 +89,8 @@ class StrategyService:
     - Option Selection: ITM 3 (calculated dynamically from the option chain)
     - Trading Window: 09:15:00 AM (inclusive) – 09:17:00 AM (exclusive) IST
     - Maximum Trades: 1 trade per day
-    - Stop Loss: 4% of total strategy capital
-    - Target Profit: 5% of total strategy capital
+    - Stop Loss: 5% of total strategy capital
+    - Target Profit: 6% of total strategy capital
     """
 
     def __init__(self):
@@ -220,6 +220,40 @@ class StrategyService:
             stmt_open = select(Order).where(Order.status.in_(["PLACED", "PENDING_EXIT"]))
             db_orders = (await db.execute(stmt_open)).scalars().all()
             matched_tokens = {str(o.instrument_key or "") for o in db_orders if o.instrument_key}
+
+            # Reconcile broker stop loss orders for open positions on startup
+            today_date = ist_now().strftime("%Y-%m-%d")
+            for o in db_orders:
+                if o.status == "PLACED" and o.broker_stop_order_id:
+                    try:
+                        stop_hist = await upstox_client.get_order_history(token_record.access_token, o.broker_stop_order_id)
+                        latest_stop = stop_hist[0] if stop_hist else {}
+                        s_status = str(latest_stop.get("status") or "").lower()
+                        if s_status in ("complete", "filled"):
+                            o.status = "CLOSED"
+                            o.broker_stop_status = "TRIGGERED"
+                            o.exit_status = "CONFIRMED_EXIT"
+                            o.exit_time = datetime.utcnow()
+                            o.exit_price = float(latest_stop.get("average_price") or o.broker_stop_trigger_price or o.price)
+                            o.exit_reason = "Broker Stop Triggered (Startup Reconciled)"
+                            charges_dict = calculate_option_charges(o.price, o.exit_price, o.qty, today_date)
+                            gross_pnl = round((o.exit_price - o.price) * o.qty, 2)
+                            o.realized_pnl = round(gross_pnl - charges_dict["total"], 2)
+                            await db.commit()
+                            logger.info(f"STARTUP RECOVERY: Order {o.symbol} broker stop was triggered while offline.")
+                        elif s_status in ("rejected", "cancelled"):
+                            o.broker_stop_status = s_status.upper()
+                            config.critical_alert = f"STARTUP WARNING: Broker stop for {o.symbol} is {s_status.upper()}! Position protected ONLY by software monitoring."
+                            await db.commit()
+                        elif s_status in ("open", "trigger pending", "put order req received", "validation pending"):
+                            o.broker_stop_status = "ACTIVE"
+                            await db.commit()
+                    except Exception as e:
+                        logger.warning(f"Startup check for broker stop on {o.symbol}: {e}")
+                elif o.status == "PLACED" and not o.broker_stop_order_id:
+                    o.broker_stop_status = "MISSING"
+                    config.critical_alert = f"STARTUP WARNING: Active position {o.symbol} has NO broker stop loss! Protected ONLY by software monitoring."
+                    await db.commit()
 
             orphans: List[Dict[str, Any]] = []
             for pos in live_positions:
@@ -555,7 +589,7 @@ class StrategyService:
                 "description": (
                     "Nifty Directional: Buy NIFTY ITM 3 Call (CE) if Gift Nifty 1-Day change >= +80 pts; "
                     "Buy NIFTY ITM 3 Put (PE) if <= -80 pts; No Trade between -80 and +80 pts. "
-                    "Entry window 09:15:00–09:17:00 IST, max 1 trade/day, Stop Loss 4% of capital, Target 5% of capital."
+                    "Entry window 09:15:00–09:17:00 IST, max 1 trade/day, Stop Loss 5% of capital, Target 6% of capital."
                 ),
                 "status": config.strategy_status,
                 "mode": config.mode,
@@ -966,7 +1000,7 @@ class StrategyService:
         - Between -80 and +80 pts -> NO TRADE (NO_TRADE)
         - Trading Window: 09:15:00 (inclusive) – 09:17:00 (exclusive) IST
         - Max 1 trade per day, resets on new trading day
-        - Capital SL = 4%, Target = 5%
+        - Capital SL = 5%, Target = 6%
         """
         status_res = await self.get_live_status(
             db=db,
@@ -1154,7 +1188,7 @@ class StrategyService:
         """
         Executes one automated monitoring and risk-management tick for Nifty Directional:
         1. Date Rollover: Resets daily trade counter on a new trading day.
-        2. Position Risk Management: Checks open positions against Capital SL (-4%) and Capital Target (+5%)
+        2. Position Risk Management: Checks open positions against Capital SL (-5%) and Capital Target (+6%)
            including brokerage & statutory charges, and executes auto square-off at 15:15 IST.
         3. Signal & Order Execution: Strictly between 09:15:00 and 09:17:00 AM IST in LIVE mode,
            evaluates Gift Nifty 1-Day change:
@@ -1282,6 +1316,106 @@ class StrategyService:
 
                         # Priority 2: Handle PLACED orders - partial fill & flat reconciliation
                         if open_order.status == "PLACED":
+                            from backend.app.services.order_service import order_service
+
+                            # Broker Stop-Loss Reconciliation for PLACED orders
+                            if open_order.broker_stop_order_id:
+                                try:
+                                    stop_hist = await upstox_client.get_order_history(
+                                        token_record.access_token, open_order.broker_stop_order_id
+                                    )
+                                    latest_stop = stop_hist[0] if stop_hist else {}
+                                    stop_h_status = str(latest_stop.get("status") or "").lower()
+
+                                    if stop_h_status in ("complete", "filled"):
+                                        # Broker Stop Loss was TRIGGERED and FILLED!
+                                        fill_price = float(
+                                            latest_stop.get("average_price")
+                                            or open_order.broker_stop_trigger_price
+                                            or open_order.price
+                                        )
+                                        open_order.status = "CLOSED"
+                                        open_order.broker_stop_status = "TRIGGERED"
+                                        open_order.exit_status = "CONFIRMED_EXIT"
+                                        open_order.exit_time = datetime.utcnow()
+                                        open_order.exit_price = fill_price
+                                        open_order.exit_reason = "Broker Stop Triggered"
+                                        charges_dict = calculate_option_charges(
+                                            open_order.price, fill_price, open_order.qty, today_date
+                                        )
+                                        gross_pnl = round((fill_price - open_order.price) * open_order.qty, 2)
+                                        open_order.realized_pnl = round(gross_pnl - charges_dict["total"], 2)
+                                        await db.commit()
+                                        actions_taken.append(
+                                            f"Position {open_order.symbol} broker stop-loss triggered and confirmed COMPLETE at ₹{fill_price:.2f}."
+                                        )
+                                        log_critical_action(
+                                            "BROKER_STOP_CONFIRMED_TRIGGERED",
+                                            {
+                                                "symbol": open_order.symbol,
+                                                "broker_stop_order_id": open_order.broker_stop_order_id,
+                                                "fill_price": fill_price,
+                                                "realized_pnl": open_order.realized_pnl,
+                                            },
+                                        )
+                                        continue
+                                    elif stop_h_status in ("rejected", "cancelled"):
+                                        old_st = open_order.broker_stop_status
+                                        open_order.broker_stop_status = stop_h_status.upper()
+                                        if old_st != stop_h_status.upper():
+                                            alert_text = (
+                                                f"WARNING: Broker Stop Loss for {open_order.symbol} was {stop_h_status.upper()}! "
+                                                f"Position protected ONLY by software monitoring."
+                                            )
+                                            config.critical_alert = alert_text
+                                            await db.commit()
+                                            await self._send_telegram_alert(f"🚨 UPSTOX ALGO ALERT\n{alert_text}")
+                                    elif stop_h_status in ("open", "trigger pending", "put order req received", "validation pending"):
+                                        open_order.broker_stop_status = "ACTIVE"
+                                except Exception as exc:
+                                    logger.debug(f"Error checking broker stop history for {open_order.symbol}: {exc}")
+
+                            # Reconciliation: If broker stop is PENDING_ENTRY_FILL, check entry order fill
+                            if not open_order.broker_stop_order_id:
+                                if open_order.broker_stop_status == "PENDING_ENTRY_FILL" and open_order.upstox_order_id:
+                                    entry_complete = False
+                                    try:
+                                        e_hist = await upstox_client.get_order_history(
+                                            token_record.access_token, open_order.upstox_order_id
+                                        )
+                                        latest_e = e_hist[0] if e_hist else {}
+                                        if str(latest_e.get("status") or "").lower() == "complete":
+                                            entry_complete = True
+                                            open_order.qty = int(latest_e.get("filled_quantity") or open_order.qty)
+                                            open_order.price = float(latest_e.get("average_price") or open_order.price)
+                                            await db.commit()
+                                    except Exception as exc:
+                                        logger.debug(f"Entry check for broker stop on {open_order.symbol}: {exc}")
+
+                                    if entry_complete:
+                                        success, stop_id, _ = await order_service.place_broker_stop_loss(
+                                            db=db,
+                                            order=open_order,
+                                            fill_price=open_order.price,
+                                            filled_qty=open_order.qty,
+                                        )
+                                        if success:
+                                            actions_taken.append(
+                                                f"Placed broker stop-loss for {open_order.symbol} ({stop_id})."
+                                            )
+                                else:
+                                    # Broker stop is MISSING: raise alert and fall back to software monitoring (Req 5)
+                                    old_st = open_order.broker_stop_status
+                                    open_order.broker_stop_status = "MISSING"
+                                    if old_st != "MISSING":
+                                        alert_text = (
+                                            f"WARNING: Active position {open_order.symbol} has NO broker stop loss (MISSING). "
+                                            f"Falling back to software monitoring."
+                                        )
+                                        config.critical_alert = alert_text
+                                        await db.commit()
+                                        await self._send_telegram_alert(f"🚨 UPSTOX ALGO ALERT\n{alert_text}")
+
                             if pos:
                                 if broker_net_qty == 0:
                                     # Position already flat on broker OMS
@@ -1302,6 +1436,8 @@ class StrategyService:
                                     actions_taken.append(
                                         f"Order {open_order.symbol} qty updated to actual broker fill qty: {broker_net_qty}."
                                     )
+                                    if open_order.broker_stop_order_id and open_order.broker_stop_status == "ACTIVE":
+                                        await order_service.adjust_broker_stop_quantity(db, open_order, broker_net_qty)
 
                     # Priority 4: Identify orphan positions
                     orphans: List[Dict[str, Any]] = []
@@ -1464,6 +1600,19 @@ class StrategyService:
 
                     actual_exit_qty = broker_net_qty
 
+                    # Cancel broker stop-loss order FIRST before sending exit order
+                    from backend.app.services.order_service import order_service
+                    token_record = await broker_service.get_or_create_token_record(db)
+                    can_exit, cancel_reason = await order_service.cancel_broker_stop_if_active(
+                        db=db, order=open_order, token_record=token_record
+                    )
+                    if not can_exit:
+                        # Broker stop was already triggered at Upstox! Position is already closed.
+                        actions_taken.append(
+                            f"Position {open_order.symbol} broker stop-loss already triggered ({cancel_reason}); duplicate market exit skipped."
+                        )
+                        continue
+
                     exit_payload = {
                         "quantity": actual_exit_qty,
                         "product": "I",
@@ -1578,6 +1727,7 @@ class StrategyService:
                             lots=config.lots,
                             strike=data.get("selected_option_strike"),
                             order_type="MARKET",
+                            current_time=now_time,
                         )
                         actions_taken.append(
                             f"Auto-executed {signal} ({selected_type}) at {now_time.strftime('%H:%M:%S IST')}."
@@ -1898,13 +2048,15 @@ class StrategyService:
         gift_nifty_by_date: Optional[Dict[str, float]] = None,
         contracts_by_date: Optional[Dict[str, List[Dict[str, Any]]]] = None,
         option_candles_by_date: Optional[Dict[str, List[Sequence[Any]]]] = None,
+        allow_nifty_proxy: bool = False,
     ) -> Dict[str, Any]:
         """
         Backtest the Nifty Directional strategy over the selected duration:
         - Signal: Gift Nifty 1-Day change >= +80 pts -> CALL (CE), <= -80 pts -> PUT (PE), between -> NO TRADE
         - Option selection: ITM 3 dynamically from the option chain
         - Entry window: 09:15:00 – 09:17:00 IST (1 trade max per day)
-        - Capital-based Risk Management: Stop Loss = 4% of strategy capital, Target = 5% of strategy capital
+        - Capital-based Risk Management: Stop Loss = 5% of strategy capital, Target = 6% of strategy capital
+        - Proxy Setting: allow_nifty_proxy (default False). When False, missing Gift Nifty data marks DATA UNAVAILABLE.
         - Uses real historical data from Upstox. Never invents option premiums or fabricates trades.
         """
         config = await broker_service.get_or_create_config(db)
@@ -1933,6 +2085,7 @@ class StrategyService:
             "signal_threshold": threshold,
             "trading_window": "09:15:00 – 09:17:00 IST",
             "auto_square_off": "15:15 IST",
+            "allow_nifty_proxy": allow_nifty_proxy,
             "charges_model": "Upstox F&O: ₹20/order brokerage + STT + NSE txn + SEBI + stamp + GST",
         }
 
@@ -2022,6 +2175,7 @@ class StrategyService:
                 if date_str < start_date or date_str > end_date:
                     continue
 
+                is_proxy = False
                 # Determine Gift Nifty 1-Day change in points for `date_str`
                 if gift_nifty_by_date and date_str in gift_nifty_by_date:
                     change_pts: Optional[float] = round(float(gift_nifty_by_date[date_str]), 2)
@@ -2029,20 +2183,28 @@ class StrategyService:
                 elif date_str in obs_map:
                     change_pts = round(float(obs_map[date_str].change_points), 2)
                     gn_source = obs_map[date_str].source
-                else:
-                    # Actual overnight NIFTY 50 opening change at 09:15 IST from verified Upstox daily candle
+                elif allow_nifty_proxy:
+                    # Explicitly enabled proxy: overnight NIFTY 50 opening change at 09:15 IST
                     change_pts = round(curr_open - prev_close, 2)
                     gn_source = "UPSTOX_NIFTY_OPEN_GAP"
+                    is_proxy = True
+                else:
+                    # Proxy is OFF by default: No Gift Nifty data -> DATA UNAVAILABLE
+                    change_pts = None
+                    gn_source = None
 
                 signal = classify_signal(change_pts, threshold)
                 opt_type = option_type_for_signal(signal)
 
                 if signal == SIGNAL_NO_TRADE:
+                    signal_label = "PROXY SIGNAL: NO TRADE" if is_proxy else "NO TRADE"
                     days.append({
                         "trade_date": date_str,
                         "gift_nifty_change": change_pts,
                         "gift_nifty_source": gn_source,
+                        "is_proxy": is_proxy,
                         "signal": SIGNAL_NO_TRADE,
+                        "signal_label": signal_label,
                         "option_type": None,
                         "strike": None,
                         "expiry": None,
@@ -2063,18 +2225,28 @@ class StrategyService:
                         "net_pnl": None,
                         "exit_reason": None,
                         "result": "NO TRADE",
-                        "note": f"Gift Nifty change ({change_pts:+.2f} pts) within neutral zone (-80 to +80 pts).",
+                        "note": (
+                            f"Proxy Signal: NIFTY 50 cash open gap ({change_pts:+.2f} pts) within neutral zone (-80 to +80 pts)."
+                            if is_proxy
+                            else f"Gift Nifty change ({change_pts:+.2f} pts) within neutral zone (-80 to +80 pts)."
+                        ),
                     })
                     continue
 
-                if signal == SIGNAL_DATA_UNAVAILABLE or opt_type is None:
-                    msg = f"{date_str}: Gift Nifty 1-Day change unavailable."
+                if signal == SIGNAL_DATA_UNAVAILABLE or opt_type is None or change_pts is None:
+                    msg = (
+                        f"{date_str}: Gift Nifty 1-Day change data unavailable (NIFTY 50 proxy disabled)."
+                        if not allow_nifty_proxy and date_str not in obs_map and not (gift_nifty_by_date and date_str in gift_nifty_by_date)
+                        else f"{date_str}: Gift Nifty 1-Day change unavailable."
+                    )
                     data_issues.append(msg)
                     days.append({
                         "trade_date": date_str,
                         "gift_nifty_change": None,
                         "gift_nifty_source": None,
+                        "is_proxy": False,
                         "signal": SIGNAL_DATA_UNAVAILABLE,
+                        "signal_label": "DATA UNAVAILABLE",
                         "option_type": None,
                         "strike": None,
                         "expiry": None,
@@ -2118,6 +2290,8 @@ class StrategyService:
                     supplied_option_candles=day_opt_candles,
                 )
 
+                signal_label = f"PROXY SIGNAL: {signal}" if is_proxy else signal
+
                 if trade_outcome["status"] != "EXECUTED":
                     issue_note = trade_outcome.get("note") or f"{date_str}: Historical option candles unavailable."
                     data_issues.append(issue_note)
@@ -2125,7 +2299,9 @@ class StrategyService:
                         "trade_date": date_str,
                         "gift_nifty_change": change_pts,
                         "gift_nifty_source": gn_source,
+                        "is_proxy": is_proxy,
                         "signal": signal,
+                        "signal_label": signal_label,
                         "option_type": opt_type,
                         "strike": trade_outcome.get("strike"),
                         "expiry": trade_outcome.get("expiry"),
@@ -2152,11 +2328,16 @@ class StrategyService:
 
                 entry_dt: datetime = trade_outcome["entry_dt"]
                 exit_dt: datetime = trade_outcome["exit_dt"]
+                trade_note = trade_outcome.get("note")
+                if is_proxy:
+                    trade_note = f"[PROXY SIGNAL] {trade_note}" if trade_note else "Executed on NIFTY 50 cash opening gap proxy."
                 days.append({
                     "trade_date": date_str,
                     "gift_nifty_change": change_pts,
                     "gift_nifty_source": gn_source,
+                    "is_proxy": is_proxy,
                     "signal": signal,
+                    "signal_label": signal_label,
                     "option_type": opt_type,
                     "strike": trade_outcome["strike"],
                     "expiry": trade_outcome["expiry"],
@@ -2177,7 +2358,7 @@ class StrategyService:
                     "net_pnl": trade_outcome["net_pnl"],
                     "exit_reason": trade_outcome["exit_reason"],
                     "result": trade_outcome["result"],
-                    "note": trade_outcome.get("note"),
+                    "note": trade_note,
                 })
 
             summary = summarize(days, total_capital, start_date)
@@ -2292,6 +2473,10 @@ class StrategyService:
             "losing_trades": summary_dict["losing_trades"],
             "no_trade_days": summary_dict["no_trade_days"],
             "data_unavailable_days": summary_dict["data_unavailable_days"],
+            "unavailable_days": summary_dict["data_unavailable_days"],
+            "real_signal_days": summary_dict.get("real_signal_days", 0),
+            "proxy_days": summary_dict.get("proxy_days", 0),
+            "allow_nifty_proxy": config_block.get("allow_nifty_proxy", False),
             "win_rate_pct": summary_dict["win_rate_pct"],
             "gross_profit": summary_dict["gross_profit"],
             "gross_loss": summary_dict["gross_loss"],

@@ -6,53 +6,34 @@ import { NiftyLivePrice } from "@/components/dashboard/NiftyLivePrice";
 import { PositionCard } from "@/components/dashboard/PositionCard";
 import { ManualOrderPanel } from "@/components/dashboard/ManualOrderPanel";
 import LotSizeCalculator from "@/components/dashboard/LotSizeCalculator";
-import { CriticalAlertBanner } from "@/components/dashboard/CriticalAlertBanner";
 import { OrphanPositionsBanner } from "@/components/dashboard/OrphanPositionsBanner";
-import { useTrading } from "@/context/TradingContext";
-import { AlertCircle, WifiOff } from "lucide-react";
+import { PageHeader } from "@/components/ui/DesignSystem";
 
 export default function DashboardPage() {
-  const { connectionStatus, mode } = useTrading();
-  const isConnected = connectionStatus === "CONNECTED";
-
   return (
-    <div className="space-y-5">
-      {/* If broker offline, show non-intrusive warning header bar */}
-      {!isConnected && (
-        <div className="flex items-center justify-between p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
-          <div className="flex items-center gap-2">
-            <WifiOff className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>
-              <strong>Broker Offline:</strong> Upstox market feed disconnected. Live quotes and automated triggers are halted. Reconnect in Settings or Top Bar.
-            </span>
-          </div>
-          <span className="font-mono text-[11px] text-rose-400/80 hidden sm:inline">
-            Status: DISCONNECTED
-          </span>
-        </div>
-      )}
+    <div className="space-y-6">
+      <PageHeader
+        title="Dashboard"
+        subtitle="Real-time Nifty 50 directional overview, open position telemetry, and execution controls."
+      />
 
-      {/* Critical Token Expiry / Live Safety Alert Banner */}
-      <CriticalAlertBanner />
-
-      {/* Orphan Positions Banner */}
+      {/* Orphan Positions Recovery Banner (only visible when unmatched broker positions exist) */}
       <OrphanPositionsBanner />
 
-      {/* Row 1: Quick Stats (Open P&L, Today's P&L, Margin Used, Win Rate) */}
+      {/* Row 1: KPI Stat Cards (max 4 per row) */}
       <QuickStats />
 
       {/* Row 2: Live Spot Price & Active Position Card */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
         <NiftyLivePrice />
         <PositionCard />
       </div>
 
-      {/* Row 3: Manual Directional Order Panel & Professional Lot Size Calculator */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+      {/* Row 3: Manual Directional Execution & Read-Only Lot Size Helper */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
         <ManualOrderPanel />
         <LotSizeCalculator />
       </div>
     </div>
   );
 }
-

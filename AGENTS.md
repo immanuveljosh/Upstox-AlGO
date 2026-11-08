@@ -6,7 +6,7 @@ This document serves as the index and rulebook for AI coding agents working on t
 
 | Skill Name | Source Repository | Domain & Purpose |
 |---|---|---|
-| [`upstox-algo-strategy`](.agents/skills/upstox-algo-strategy/SKILL.md) | Project Specific | System default rules: Nifty Directional, ITM 3 strike, 65 lot size, 09:15-09:17 window, 4% SL / 5% Target. |
+| [`upstox-algo-strategy`](.agents/skills/upstox-algo-strategy/SKILL.md) | Project Specific | System default rules: Nifty Directional, ITM 3 strike, 65 lot size, 09:15-09:17 window, 5% SL / 6% Target. |
 | [`upstox`](.agents/skills/upstox/SKILL.md) | `upstox/upstox-skills` | Official Upstox Python SDK v2, instruments, quotes, option chain, order placement, websocket feed. |
 | [`fastapi`](.agents/skills/fastapi/SKILL.md) | `fastapi/fastapi` | FastAPI backend patterns, async endpoints, dependency injection, Pydantic v2 schemas. |
 | [`vercel-react-best-practices`](.agents/skills/vercel-react-best-practices/SKILL.md) | `vercel-labs/agent-skills` | Next.js App Router, React 18 hooks, memoization, hydration best practices. |
@@ -27,8 +27,8 @@ This document serves as the index and rulebook for AI coding agents working on t
    - Max Trades: **1 trade per calendar trading day**.
 2. **Lot Size**: NIFTY contract lot size = **65 units** (1 lot = 65, 2 lots = 130). Always validate against actual Upstox metadata.
 3. **Risk Management**: Total strategy capital-based limits:
-   - Stop Loss = **-4.0% of total strategy capital**.
-   - Target Profit = **+5.0% of total strategy capital**.
+   - Stop Loss = **-5.0% of total strategy capital**.
+   - Target Profit = **+6.0% of total strategy capital**.
    - Auto square-off at **15:15 IST**.
 4. **Trading Modes**:
    - `BACKTEST` (Historical strategy checking with real historical candles, zero live orders).

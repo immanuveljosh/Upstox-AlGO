@@ -1,26 +1,47 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useTrading } from "@/context/TradingContext";
-import { Shield, TrendingDown, Target, IndianRupee, Layers, CheckCircle2, Sliders } from "lucide-react";
+import { IndianRupee, Layers, Sliders } from "lucide-react";
 import { formatIndianNumber } from "@/lib/utils";
+import { Card, StatusBadge } from "@/components/ui/DesignSystem";
 
 export function RiskSettings() {
-  const { strategy, updateRiskSettings, updateCapital, updateStrategyLots, addToast } = useTrading();
+  const {
+    strategy,
+    updateRiskSettings,
+    updateCapital,
+    updateStrategyLots,
+    addToast,
+  } = useTrading();
 
-  const [capitalInput, setCapitalInput] = useState(strategy.totalCapital.toString());
+  const [capitalInput, setCapitalInput] = useState(
+    strategy.totalCapital.toString()
+  );
   const [slPct, setSlPct] = useState(strategy.stoplossPercent.toString());
   const [tgtPct, setTgtPct] = useState(strategy.targetPercent.toString());
   const [lots, setLots] = useState(strategy.lots.toString());
 
+  useEffect(() => {
+    setCapitalInput(String(strategy.totalCapital || 200000));
+    setSlPct(String(strategy.stoplossPercent || 4.0));
+    setTgtPct(String(strategy.targetPercent || 5.0));
+    setLots(String(strategy.lots || 1));
+  }, [
+    strategy.totalCapital,
+    strategy.stoplossPercent,
+    strategy.targetPercent,
+    strategy.lots,
+  ]);
+
   const handleSaveCapital = (e: React.FormEvent) => {
     e.preventDefault();
     const cap = parseFloat(capitalInput);
-    if (isNaN(cap) || cap < 50000) {
+    if (isNaN(cap) || cap < 10000) {
       addToast({
         type: "error",
         title: "Invalid Capital",
-        message: "Total strategy capital must be at least ₹50,000.",
+        message: "Total strategy capital must be at least ₹10,000.",
       });
       return;
     }
@@ -31,11 +52,11 @@ export function RiskSettings() {
     e.preventDefault();
     const sl = parseFloat(slPct);
     const tgt = parseFloat(tgtPct);
-    if (isNaN(sl) || sl <= 0 || sl > 20) {
+    if (isNaN(sl) || sl <= 0 || sl > 25) {
       addToast({
         type: "error",
         title: "Invalid Stop Loss",
-        message: "Stop Loss must be between 0.5% and 20.0% of capital.",
+        message: "Stop Loss must be between 0.5% and 25.0% of capital.",
       });
       return;
     }
@@ -43,7 +64,7 @@ export function RiskSettings() {
       addToast({
         type: "error",
         title: "Invalid Target Profit",
-        message: "Target Profit must be between 1.0% and 50.0% of capital.",
+        message: "Target Profit must be between 0.5% and 50.0% of capital.",
       });
       return;
     }
@@ -57,7 +78,8 @@ export function RiskSettings() {
       addToast({
         type: "error",
         title: "Invalid Lot Size",
-        message: "Quantity must be between 1 and 27 lots (NSE freeze limit: 1,755 units).",
+        message:
+          "Quantity must be between 1 and 27 lots (NSE freeze limit: 1,755 units).",
       });
       return;
     }
@@ -67,53 +89,48 @@ export function RiskSettings() {
   const currentCapital = strategy.totalCapital || 200000;
   const slAmt = (currentCapital * strategy.stoplossPercent) / 100;
   const tgtAmt = (currentCapital * strategy.targetPercent) / 100;
-  const totalQty = (strategy.lots || 1) * (strategy.lotSize || 65);
+  const actualLotSize = strategy.lotSize || 65;
+  const totalQty = (strategy.lots || 1) * actualLotSize;
 
   return (
-    <div className="rounded-2xl bg-slate-900/80 border border-slate-800 p-6 shadow-xl backdrop-blur-sm space-y-6">
-      <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-        <div className="flex items-center gap-2.5">
-          <Shield className="w-5 h-5 text-emerald-400" />
-          <div>
-            <h3 className="text-sm font-bold text-white tracking-tight">
-              Strategy Risk & Capital Management
-            </h3>
-            <p className="text-xs text-slate-400">
-              Institutional safety bounds: NIFTY Directional rules & circuit breakers.
-            </p>
-          </div>
-        </div>
-        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-semibold">
-          NIFTY DIRECTIONAL
-        </span>
-      </div>
-
+    <Card
+      title="Strategy Risk & Capital Management"
+      subtitle="Single source of truth for strategy capital, stop-loss/target bounds, and position lot size."
+      headerAction={
+        <StatusBadge tone="success">Nifty Directional</StatusBadge>
+      }
+    >
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Total Capital */}
-        <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 flex flex-col justify-between">
+        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-xs mb-2">
-              <span className="font-semibold text-slate-300">Total Strategy Capital</span>
+              <span className="font-medium text-slate-300">
+                Total strategy capital
+              </span>
               <IndianRupee className="w-3.5 h-3.5 text-slate-400" />
             </div>
-            <div className="text-lg font-mono font-bold text-white tabular-nums">
+            <div className="text-xl font-mono font-semibold text-slate-100 tabular-nums">
               ₹{formatIndianNumber(currentCapital)}
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Base equity pool allocated for SL & Target calculations.
+            <p className="text-xs text-slate-400 mt-1">
+              Base equity pool allocated for SL &amp; Target calculations.
             </p>
           </div>
 
           <form onSubmit={handleSaveCapital} className="mt-4 flex gap-2">
             <input
               type="number"
+              min={10000}
+              step={5000}
               value={capitalInput}
               onChange={(e) => setCapitalInput(e.target.value)}
-              className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+              aria-label="Total Strategy Capital"
+              className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-slate-100 focus:outline-none focus:border-emerald-500"
             />
             <button
               type="submit"
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs transition-colors shrink-0"
+              className="px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs transition-colors shrink-0 cursor-pointer"
             >
               Update
             </button>
@@ -121,18 +138,25 @@ export function RiskSettings() {
         </div>
 
         {/* Stop Loss & Target Profit */}
-        <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 flex flex-col justify-between">
+        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-xs mb-2">
-              <span className="font-semibold text-slate-300">Capital Risk Limits</span>
+              <span className="font-medium text-slate-300">
+                Capital risk limits
+              </span>
               <Sliders className="w-3.5 h-3.5 text-slate-400" />
             </div>
-            <div className="flex items-center justify-between text-xs font-mono pt-1">
-              <span className="text-rose-400">SL: -{strategy.stoplossPercent}% (₹{formatIndianNumber(slAmt)})</span>
-              <span className="text-emerald-400">Target: +{strategy.targetPercent}% (₹{formatIndianNumber(tgtAmt)})</span>
+            <div className="flex items-center justify-between text-xs font-mono pt-1 tabular-nums">
+              <span className="text-rose-400">
+                SL: -{strategy.stoplossPercent}% (₹{formatIndianNumber(slAmt)})
+              </span>
+              <span className="text-emerald-400">
+                Target: +{strategy.targetPercent}% (₹
+                {formatIndianNumber(tgtAmt)})
+              </span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-2">
-              Automatic square-off triggers if daily P&L hits either bound.
+            <p className="text-xs text-slate-400 mt-2">
+              Automatic square-off triggers if daily P&amp;L hits either bound.
             </p>
           </div>
 
@@ -144,7 +168,8 @@ export function RiskSettings() {
                 value={slPct}
                 onChange={(e) => setSlPct(e.target.value)}
                 placeholder="SL %"
-                className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-rose-300 focus:outline-none focus:border-rose-500"
+                aria-label="Stop Loss Percent"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-rose-300 focus:outline-none focus:border-rose-500"
               />
             </div>
             <div className="flex-1">
@@ -154,30 +179,35 @@ export function RiskSettings() {
                 value={tgtPct}
                 onChange={(e) => setTgtPct(e.target.value)}
                 placeholder="Target %"
-                className="w-full px-2 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
+                aria-label="Target Profit Percent"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-emerald-300 focus:outline-none focus:border-emerald-500"
               />
             </div>
             <button
               type="submit"
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs border border-slate-700 transition-colors shrink-0"
+              className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 font-medium text-xs border border-slate-700 transition-colors shrink-0 cursor-pointer"
             >
               Save
             </button>
           </form>
         </div>
 
-        {/* Position Lots & Freezes */}
-        <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 flex flex-col justify-between">
+        {/* Position Quantity (Single Editable Source of Truth) */}
+        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-xs mb-2">
-              <span className="font-semibold text-slate-300">Position Quantity</span>
+              <span className="font-medium text-slate-300">
+                Position Quantity
+              </span>
               <Layers className="w-3.5 h-3.5 text-slate-400" />
             </div>
-            <div className="text-lg font-mono font-bold text-white tabular-nums">
-              {strategy.lots} Lot{strategy.lots > 1 ? "s" : ""} ({totalQty} units)
+            <div className="text-xl font-mono font-semibold text-slate-100 tabular-nums">
+              {strategy.lots} {strategy.lots === 1 ? "Lot" : "Lots"} ({totalQty}{" "}
+              units)
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              NIFTY 50 contract size: 65 units per lot.
+            <p className="text-xs text-slate-400 mt-1">
+              NIFTY 50 contract size: {actualLotSize} units per lot (max 27
+              lots).
             </p>
           </div>
 
@@ -188,17 +218,18 @@ export function RiskSettings() {
               max="27"
               value={lots}
               onChange={(e) => setLots(e.target.value)}
-              className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+              aria-label="Position Quantity Lots"
+              className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-slate-100 focus:outline-none focus:border-emerald-500"
             />
             <button
               type="submit"
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium text-xs border border-slate-700 transition-colors shrink-0"
+              className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 font-medium text-xs border border-slate-700 transition-colors shrink-0 cursor-pointer"
             >
               Update
             </button>
           </form>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

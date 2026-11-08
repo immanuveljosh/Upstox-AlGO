@@ -3,122 +3,92 @@
 import React from "react";
 import { useTrading } from "@/context/TradingContext";
 import { formatINR, formatPercent } from "@/lib/utils";
-import {
-  ShieldCheck,
-  Target,
-  ArrowUpRight,
-  ArrowDownRight,
-  XCircle,
-  Clock,
-  Layers,
-  AlertTriangle,
-} from "lucide-react";
+import { XCircle, Clock, Layers, AlertTriangle } from "lucide-react";
+import { Card, EmptyState, StatusBadge } from "@/components/ui/DesignSystem";
 
 export function PositionCard() {
-  const { activePosition, closeActivePosition, connectionStatus } = useTrading();
-
-  const isConnected = connectionStatus === "CONNECTED";
-
-  if (!isConnected) {
-    return (
-      <div className="rounded-xl bg-slate-900 border border-slate-800 p-5 flex flex-col justify-center items-center text-center h-[260px]">
-        <div className="p-3 rounded-xl bg-slate-800/80 text-slate-500 mb-2">
-          <Layers className="w-6 h-6" />
-        </div>
-        <div className="text-xs font-semibold text-slate-400">
-          Position Stream Offline
-        </div>
-        <p className="text-[11px] text-slate-500 max-w-xs mt-1">
-          Open positions cannot be verified while disconnected from Upstox OMS.
-        </p>
-      </div>
-    );
-  }
+  const { activePosition, closeActivePosition } = useTrading();
 
   if (!activePosition) {
     return (
-      <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 flex flex-col justify-center items-center text-center h-[260px]">
-        <div className="w-12 h-12 rounded-xl bg-slate-800/50 border border-slate-800 flex items-center justify-center text-slate-400 mb-3">
-          <Layers className="w-6 h-6" />
-        </div>
-        <h4 className="text-sm font-semibold text-slate-200">
-          No Open Directional Position
-        </h4>
-        <p className="text-xs text-slate-400 max-w-xs mt-1 leading-relaxed">
-          Strategy scanner is waiting for next 5-min trend confirmation, or place a manual Call / Put below.
-        </p>
-      </div>
+      <Card
+        title="Active position"
+        subtitle="Intraday directional contract monitor"
+        className="flex flex-col justify-between h-full"
+      >
+        <EmptyState
+          icon={Layers}
+          title="No open directional position"
+          description="Waiting for the next 09:15–09:17 IST signal window or manual execution below."
+        />
+      </Card>
     );
   }
 
   const isCall = activePosition.type === "CE";
   const isProfit = activePosition.pnl >= 0;
+  const isUnverified =
+    activePosition.quoteStatus === "UNVERIFIED" || activePosition.isUnverified;
+  const isStale =
+    activePosition.quoteStatus === "STALE" || activePosition.isStale;
+
+  const rawStopStatus = (activePosition.brokerStopStatus || "MISSING").toUpperCase();
+  const brokerStopDisplay =
+    rawStopStatus === "ACTIVE"
+      ? "ACTIVE"
+      : rawStopStatus === "TRIGGERED"
+      ? "TRIGGERED"
+      : "MISSING";
+
+  const stopTone =
+    brokerStopDisplay === "ACTIVE"
+      ? "success"
+      : brokerStopDisplay === "TRIGGERED"
+      ? "info"
+      : "warning";
 
   return (
-    <div className="rounded-xl bg-slate-900 border border-slate-800 p-5 flex flex-col justify-between relative overflow-hidden">
-      {/* Top indicator stripe */}
-      <div
-        className={`absolute top-0 left-0 right-0 h-1 ${
-          isCall ? "bg-emerald-500" : "bg-rose-500"
-        }`}
-      />
-
-      {/* Header Info */}
+    <Card
+      title={
+        <span className="inline-flex items-center gap-2 flex-wrap">
+          <StatusBadge tone={isCall ? "success" : "danger"}>
+            {activePosition.type}
+          </StatusBadge>
+          <span className="font-mono">{activePosition.symbol}</span>
+          <StatusBadge tone={stopTone} dot={brokerStopDisplay === "ACTIVE"}>
+            Broker stop: {brokerStopDisplay}
+          </StatusBadge>
+        </span>
+      }
+      subtitle={`${activePosition.entryTime} • ${activePosition.lots} Lot(s) × ${
+        activePosition.lotSize || 65
+      } = ${activePosition.qty} Qty`}
+      headerAction={
+        activePosition.status === "PENDING_EXIT" ? (
+          <StatusBadge tone="warning" dot>
+            Exiting (awaiting fill)...
+          </StatusBadge>
+        ) : (
+          <button
+            type="button"
+            onClick={closeActivePosition}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition-colors cursor-pointer"
+          >
+            <XCircle className="w-3.5 h-3.5" />
+            <span>Square off</span>
+          </button>
+        )
+      }
+      className="flex flex-col justify-between h-full"
+    >
       <div>
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2.5">
-            <span
-              className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold tracking-wider ${
-                isCall
-                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                  : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
-              }`}
-            >
-              {activePosition.type}
-            </span>
-            <div>
-              <h3 className="text-base font-bold text-white font-mono tracking-tight">
-                {activePosition.symbol}
-              </h3>
-              <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                <span className="flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-slate-500" />
-                  {activePosition.entryTime}
-                </span>
-                <span>&bull;</span>
-                <span className="font-mono text-slate-300">
-                  {activePosition.lots} Lots &times; {activePosition.lotSize || 65} ={" "}
-                  <strong className="text-white">{activePosition.qty} Qty</strong>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Exit / Square-off Button or Pending Exit Status */}
-          {activePosition.status === "PENDING_EXIT" ? (
-            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold animate-pulse">
-              <Clock className="w-3.5 h-3.5" />
-              <span>Exiting (Awaiting Fill)...</span>
-            </span>
-          ) : (
-            <button
-              onClick={closeActivePosition}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold transition-all cursor-pointer"
-            >
-              <XCircle className="w-3.5 h-3.5" />
-              <span>Square Off</span>
-            </button>
-          )}
-        </div>
-
-        {/* Real-time P&L Display */}
-        <div className="mt-4 p-3.5 rounded-lg bg-slate-950/70 border border-slate-800 flex items-center justify-between">
+        <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between gap-4">
           <div>
-            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+            <span className="text-[13px] font-medium text-slate-400">
               Unrealized P&L
             </span>
             <div
-              className={`text-xl md:text-2xl font-bold font-mono tracking-tight tabular-nums flex items-baseline gap-1.5 ${
+              className={`text-2xl font-semibold font-mono tracking-tight tabular-nums flex items-baseline gap-2 mt-0.5 ${
                 isProfit ? "text-emerald-400" : "text-rose-400"
               }`}
             >
@@ -130,80 +100,81 @@ export function PositionCard() {
           </div>
 
           <div className="text-right">
-            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center justify-end gap-1.5">
-              {activePosition.quoteStatus === "UNVERIFIED" || activePosition.isUnverified ? (
-                <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px] font-bold border border-rose-500/30 animate-pulse">
-                  UNVERIFIED
-                </span>
-              ) : activePosition.quoteStatus === "STALE" || activePosition.isStale ? (
-                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold border border-amber-500/30">
-                  STALE
-                </span>
+            <div className="flex items-center justify-end gap-2">
+              {isUnverified ? (
+                <StatusBadge tone="danger">UNVERIFIED</StatusBadge>
+              ) : isStale ? (
+                <StatusBadge tone="warning">STALE</StatusBadge>
               ) : (
-                <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[9px] font-bold border border-emerald-500/30">
-                  LIVE
-                </span>
+                <StatusBadge tone="success">LIVE</StatusBadge>
               )}
-              LTP / Premium
-            </span>
-            <div className="text-lg font-bold font-mono text-white tabular-nums">
+              <span className="text-xs font-medium text-slate-400">LTP</span>
+            </div>
+            <div className="text-lg font-semibold font-mono text-slate-100 tabular-nums mt-0.5">
               ₹{activePosition.ltp.toFixed(2)}
             </div>
-            <div className="text-[10px] text-slate-400 font-mono">
-              Avg Buy: ₹{activePosition.buyPrice.toFixed(2)}
+            <div className="text-xs text-slate-400 font-mono tabular-nums">
+              Avg buy: ₹{activePosition.buyPrice.toFixed(2)}
             </div>
           </div>
         </div>
 
-        {/* Warning callout if quote validation failed so user is not misled */}
-        {(activePosition.quoteStatus === "UNVERIFIED" || activePosition.isUnverified) && (
-          <div className="mt-3 p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-xs text-rose-200 flex items-start gap-2">
+        {isUnverified && (
+          <div className="mt-3 p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-xs text-rose-200 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold text-rose-300">SL/Target Protection Inactive: Quote Unverified</span>
-              <p className="text-[11px] text-rose-300/80 mt-0.5">
-                {activePosition.quoteRejectReason || "Market feed timestamp is missing, future, or invalid. Automatic triggers suspended."}
+              <span className="font-semibold text-rose-300">
+                SL/Target protection inactive: quote unverified
+              </span>
+              <p className="text-xs text-rose-300/80 mt-0.5">
+                {activePosition.quoteRejectReason ||
+                  "Market feed timestamp is missing, future, or invalid. Automatic triggers suspended."}
               </p>
             </div>
           </div>
         )}
-        {(activePosition.quoteStatus === "STALE" || activePosition.isStale) && !(activePosition.quoteStatus === "UNVERIFIED" || activePosition.isUnverified) && (
-          <div className="mt-3 p-2.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs text-amber-200 flex items-start gap-2">
+
+        {isStale && !isUnverified && (
+          <div className="mt-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold text-amber-300">SL/Target Protection Paused: Quote Stale (&gt;60s)</span>
-              <p className="text-[11px] text-amber-300/80 mt-0.5">
-                Feed ticks are delayed. Automatic square-off suspended until fresh market quotes resume.
+              <span className="font-semibold text-amber-300">
+                SL/Target protection paused: quote stale (&gt;60s)
+              </span>
+              <p className="text-xs text-amber-300/80 mt-0.5">
+                Feed ticks are delayed. Automatic square-off is suspended until fresh market quotes resume.
               </p>
             </div>
           </div>
         )}
       </div>
 
-      {/* Target & Trailing SL Progress */}
-      <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs pt-3 border-t border-slate-800">
-        <div className="p-2 rounded bg-slate-950 border border-slate-800">
-          <div className="text-[10px] text-slate-400">Stoploss</div>
-          <div className="font-mono font-bold text-rose-400 mt-0.5">
-            ₹{activePosition.stoploss.toFixed(2)}
+      <div className="mt-4 grid grid-cols-3 gap-3 text-center text-xs pt-4 border-t border-slate-800">
+        <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+          <div className="text-xs text-slate-400">Stop loss</div>
+          <div className="font-mono font-semibold text-rose-400 mt-0.5 tabular-nums">
+            {activePosition.stoploss > 0
+              ? `₹${activePosition.stoploss.toFixed(2)}`
+              : activePosition.brokerStopTriggerPrice
+              ? `₹${activePosition.brokerStopTriggerPrice.toFixed(2)}`
+              : "5% Capital"}
           </div>
         </div>
 
-        <div className="p-2 rounded bg-slate-950 border border-slate-800">
-          <div className="text-[10px] text-slate-400">Trailing SL</div>
-          <div className="font-mono font-bold text-amber-400 mt-0.5">
+        <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+          <div className="text-xs text-slate-400">Trailing SL</div>
+          <div className="font-mono font-semibold text-amber-300 mt-0.5 tabular-nums">
             ₹{activePosition.trailingSl.toFixed(2)}
           </div>
         </div>
 
-        <div className="p-2 rounded bg-slate-950 border border-slate-800">
-          <div className="text-[10px] text-slate-400">Target (1:2)</div>
-          <div className="font-mono font-bold text-emerald-400 mt-0.5">
+        <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+          <div className="text-xs text-slate-400">Target</div>
+          <div className="font-mono font-semibold text-emerald-400 mt-0.5 tabular-nums">
             ₹{activePosition.target.toFixed(2)}
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
-

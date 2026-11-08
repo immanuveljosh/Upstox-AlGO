@@ -29,7 +29,7 @@ export const defaultStrategy: StrategyConfig = {
   timeframe: "1 Day",
   signalThreshold: 80.0,
   description:
-    "Nifty Directional: Buy NIFTY ITM 3 Call (CE) if Gift Nifty 1-Day change >= +80 pts; Buy NIFTY ITM 3 Put (PE) if <= -80 pts; No Trade between -80 and +80 pts. Trading window 09:15:00–09:17:00 IST, max 1 trade/day, Stop Loss 4% of capital, Target Profit 5% of capital.",
+    "Nifty Directional: Buy NIFTY ITM 3 Call (CE) if Gift Nifty 1-Day change >= +80 pts; Buy NIFTY ITM 3 Put (PE) if <= -80 pts; No Trade between -80 and +80 pts. Trading window 09:15:00–09:17:00 IST, max 1 trade/day, Stop Loss 5% of capital, Target Profit 6% of capital.",
   status: "STOPPED",
   giftNiftyChange: null,
   giftNiftyChangePct: 0.0,
@@ -38,18 +38,18 @@ export const defaultStrategy: StrategyConfig = {
   selectedOption: "Awaiting Signal (ITM 3)",
   entryPrice: 0.0,
   totalCapital: 200000,
-  stoplossPercent: 4.0,
-  stoplossAmount: 8000, // 4% of ₹2,00,000
-  targetPercent: 5.0,
-  targetAmount: 10000, // 5% of ₹2,00,000
+  stoplossPercent: 5.0,
+  stoplossAmount: 10000, // 5% of ₹2,00,000
+  targetPercent: 6.0,
+  targetAmount: 12000, // 6% of ₹2,00,000
   windowStatus: "CLOSED",
   dailyTradeCount: 0,
   maxDailyTrades: 1,
   lotSize: 65, // 65 units per lot for NIFTY contracts
   lots: 1, // 1 lot = 65 quantity
-  stoplossPoints: 123, // ₹8,000 / 65 qty
-  targetPoints: 154, // ₹10,000 / 65 qty
-  maxDailyLoss: 8000, // 4% of ₹2,00,000 capital
+  stoplossPoints: 154, // ₹10,000 / 65 qty
+  targetPoints: 185, // ₹12,000 / 65 qty
+  maxDailyLoss: 10000, // 5% of ₹2,00,000 capital
   entryWindowStart: "09:15:00",
   entryWindowEnd: "09:17:00",
   autoSquareOffTime: "15:15",

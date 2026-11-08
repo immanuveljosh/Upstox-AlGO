@@ -51,6 +51,10 @@ export interface Position {
   isUnverified?: boolean;
   quoteStatus?: "FRESH" | "STALE" | "UNVERIFIED";
   quoteRejectReason?: string;
+  brokerStopStatus?: "ACTIVE" | "MISSING" | "TRIGGERED" | "REJECTED" | "CANCELLED" | "FAILED" | "PENDING_ENTRY_FILL" | string;
+  brokerStopOrderId?: string;
+  brokerStopTriggerPrice?: number;
+  brokerStopLimitPrice?: number;
 }
 
 export interface OrphanPosition {

@@ -33,8 +33,8 @@ OPTION_SELECTION = "ITM 3"
 ITM_DEPTH = 3
 
 DEFAULT_SIGNAL_THRESHOLD = 80.0
-DEFAULT_STOPLOSS_CAPITAL_PCT = 4.0
-DEFAULT_TARGET_CAPITAL_PCT = 5.0
+DEFAULT_STOPLOSS_CAPITAL_PCT = 5.0
+DEFAULT_TARGET_CAPITAL_PCT = 6.0
 DEFAULT_TOTAL_CAPITAL = 200000.0
 DEFAULT_LOTS = 1
 MAX_TRADES_PER_DAY = 1
@@ -417,6 +417,8 @@ class BacktestSummary:
     max_drawdown_pct: float
     profit_factor: Optional[float]
     overall_result: str
+    real_signal_days: int = 0
+    proxy_days: int = 0
     equity_curve: List[Dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -460,6 +462,15 @@ def summarize(days: Sequence[Dict[str, Any]], initial_capital: float, start_date
 
     no_trade = sum(1 for d in days if d.get("result") == "NO TRADE")
     unavailable = sum(1 for d in days if d.get("result") == SIGNAL_DATA_UNAVAILABLE)
+    real_days = sum(
+        1 for d in days
+        if d.get("gift_nifty_source") in ("SUPPLIED", "CSV_IMPORT", "MANUAL", "UPSTOX_GLOBAL_INDEX")
+        and not d.get("is_proxy")
+    )
+    proxy_days = sum(
+        1 for d in days
+        if d.get("is_proxy") or d.get("gift_nifty_source") == "UPSTOX_NIFTY_OPEN_GAP"
+    )
 
     if not trades and unavailable and unavailable == len(days):
         overall = SIGNAL_DATA_UNAVAILABLE
@@ -476,6 +487,8 @@ def summarize(days: Sequence[Dict[str, Any]], initial_capital: float, start_date
         breakeven_trades=len(evens),
         no_trade_days=no_trade,
         data_unavailable_days=unavailable,
+        real_signal_days=real_days,
+        proxy_days=proxy_days,
         win_rate_pct=round(len(wins) / len(trades) * 100.0, 2) if trades else 0.0,
         gross_profit=gross_profit,
         gross_loss=gross_loss,
